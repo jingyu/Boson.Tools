@@ -27,36 +27,32 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
 import io.bosonnetwork.Id;
+import io.bosonnetwork.activeproxy.Configuration;
 import io.bosonnetwork.cli.common.CliException;
 import io.bosonnetwork.cli.common.CliGroup;
-import io.bosonnetwork.cli.director.ConfigFile;
-import io.bosonnetwork.cli.director.ResolveAddress;
+import io.bosonnetwork.cli.common.ErrorReporter;
 import io.bosonnetwork.cli.common.Formats;
-import io.bosonnetwork.cli.director.Settings;
 import io.bosonnetwork.cli.director.Settings.Setting;
-import io.bosonnetwork.cli.director.ToolSpec;
 
 /**
  * The {@code config} commands, shared by both tools.
  */
 @Command(name = "config", description = {"Show and change the configuration.",
-		"The configuration names the Director to talk to and the identity to act with. Command-line options "
+		"The configuration names the Director to talk to and the identities to act with. Command-line options "
 				+ "and BOSON_* environment variables override it."},
 		subcommands = {ConfigCommand.InitCommand.class, ConfigCommand.ShowCommand.class,
 				ConfigCommand.SetCommand.class, ConfigCommand.UnsetCommand.class})
 public class ConfigCommand extends CliGroup {
-	// The settings 'config set' changes; privateKey is left to 'identity import', off the command line.
-	private static final List<String> SETTABLE = List.of(ConfigFile.URL, ConfigFile.NODE_ID, ConfigFile.RESOLVE,
-			ConfigFile.IDENTITY);
 
 	@Command(name = "init", description = {"Create the configuration file.",
 			"Writes the settings given with --url, --node-id and --resolve, with a comment explaining each setting. "
@@ -97,35 +93,39 @@ public class ConfigCommand extends CliGroup {
 		@Override
 		protected void run() {
 			Settings settings = context().settings();
+			boolean device = tool().hasDevice();
 
-			Setting identity = null;
-			String identityProblem = null;
-			try {
-				identity = settings.identity();
-			} catch (CliException e) {
-				identityProblem = e.getMessage();
+			List<String> problems = new ArrayList<>();
+			Identity identity = Identity.of(settings::identity, settings::identityFile, problems);
+			Identity deviceIdentity = device ? Identity.of(settings::deviceIdentity, settings::deviceIdentityFile, problems) : null;
+
+			List<Setting> plain = new ArrayList<>();
+			plain.add(settings.url());
+			plain.add(settings.nodeId());
+			plain.add(settings.resolve());
+			List<String> plainKeys = new ArrayList<>(List.of(ConfigFile.URL, ConfigFile.NODE_ID, ConfigFile.RESOLVE));
+			List<Setting> clientSettings = new ArrayList<>();
+			List<String> clientKeys = new ArrayList<>();
+			if (device) {
+				clientSettings.add(settings.userId());
+				clientKeys.add(ConfigFile.USER_ID);
+				for (String key : List.of(ConfigFile.PROXY_UPSTREAM, ConfigFile.PROXY_NAME_ACCESS, ConfigFile.PROXY_ANNOUNCE)) {
+					clientSettings.add(settings.proxy(key));
+					clientKeys.add(key);
+				}
 			}
-			Path identityFile = identity != null && identity.key().equals(ConfigFile.IDENTITY) ? settings.identityFile() : null;
 
 			if (output().isJson()) {
 				Map<String, Object> json = new LinkedHashMap<>();
 				json.put("configFile", settings.configFile().toString());
 				json.put("configFileExists", settings.configFileExists());
-				json.put(ConfigFile.URL, settingJson(settings.url()));
-				json.put(ConfigFile.NODE_ID, settingJson(settings.nodeId()));
-				json.put(ConfigFile.RESOLVE, settingJson(settings.resolve()));
-				if (identity != null) {
-					Map<String, Object> id = new LinkedHashMap<>();
-					if (identityFile != null) {
-						id.put("file", identityFile.toString());
-						id.put("exists", Files.exists(identityFile));
-					} else {
-						id.put("privateKey", "(hidden)");
-					}
-					id.put("from", from(identity));
-					json.put("identity", id);
-				} else {
-					json.put("identity", Map.of("error", identityProblem));
+				for (int i = 0; i < plain.size(); i++)
+					json.put(plainKeys.get(i), settingJson(plain.get(i)));
+				json.put("identity", identity.json());
+				if (device) {
+					json.put("deviceIdentity", deviceIdentity.json());
+					for (int i = 0; i < clientSettings.size(); i++)
+						json.put(clientKeys.get(i), settingJson(clientSettings.get(i)));
 				}
 				output().json(json);
 				return;
@@ -137,19 +137,52 @@ public class ConfigCommand extends CliGroup {
 			output().blank();
 
 			List<List<String>> rows = new ArrayList<>();
-			rows.add(row(ConfigFile.URL, settings.url()));
-			rows.add(row(ConfigFile.NODE_ID, settings.nodeId()));
-			rows.add(row(ConfigFile.RESOLVE, settings.resolve()));
-			if (identity == null)
-				rows.add(List.of("identity", Formats.NONE, Formats.NONE));
-			else if (identityFile != null)
-				rows.add(List.of("identity", identityFile + (Files.exists(identityFile) ? "" : " (does not exist)"), from(identity)));
-			else
-				rows.add(List.of("identity", "private key (not shown)", from(identity)));
+			for (int i = 0; i < plain.size(); i++)
+				rows.add(row(plainKeys.get(i), plain.get(i)));
+			rows.add(identity.row("identity"));
+			if (device) {
+				rows.add(deviceIdentity.row("deviceIdentity"));
+				for (int i = 0; i < clientSettings.size(); i++)
+					rows.add(row(clientKeys.get(i), clientSettings.get(i)));
+			}
 			output().table(List.of("SETTING", "VALUE", "FROM"), rows);
 
-			if (identityProblem != null)
-				output().warning(identityProblem);
+			problems.forEach(output()::warning);
+		}
+
+		// An identity setting as shown: a file, which may not exist yet, or a key that is not shown.
+		private record Identity(Setting setting, Path file) {
+			static Identity of(Supplier<Setting> setting, Supplier<Path> file,
+					List<String> problems) {
+				try {
+					return new Identity(setting.get(), file.get());
+				} catch (CliException e) {
+					problems.add(e.getMessage());
+					return new Identity(null, null);
+				}
+			}
+
+			List<String> row(String key) {
+				if (setting == null)
+					return List.of(key, Formats.NONE, Formats.NONE);
+				if (file != null)
+					return List.of(key, file + (Files.exists(file) ? "" : " (does not exist)"), from(setting));
+				return List.of(key, "private key (not shown)", from(setting));
+			}
+
+			Object json() {
+				if (setting == null)
+					return Map.of("error", "invalid");
+				Map<String, Object> id = new LinkedHashMap<>();
+				if (file != null) {
+					id.put("file", file.toString());
+					id.put("exists", Files.exists(file));
+				} else {
+					id.put("privateKey", "(hidden)");
+				}
+				id.put("from", from(setting));
+				return id;
+			}
 		}
 
 		private static List<String> row(String key, Setting setting) {
@@ -177,8 +210,8 @@ public class ConfigCommand extends CliGroup {
 	@Command(name = "set", description = {"Change a setting in the configuration file.",
 			"Creates the file if it does not exist. Comments and the other settings are kept."})
 	public static class SetCommand extends DirectorCommand {
-		@Parameters(index = "0", paramLabel = "<key>", completionCandidates = SettableKeys.class,
-				description = "The setting: ${COMPLETION-CANDIDATES}.")
+		@Parameters(index = "0", paramLabel = "<key>",
+				description = "The setting, such as url or nodeId. 'config show' lists them, and a wrong one is named.")
 		String key;
 
 		@Parameters(index = "1", paramLabel = "<value>", description = "The new value.")
@@ -186,7 +219,7 @@ public class ConfigCommand extends CliGroup {
 
 		@Override
 		protected void run() {
-			checkKey(key, true);
+			checkKey(tool(), key, true);
 			String normalized = checkValue(tool(), key, value);
 			Path path = Settings.configFileLocation(tool(), context().environment(), context().options());
 
@@ -202,19 +235,20 @@ public class ConfigCommand extends CliGroup {
 			}
 
 			output().message("Set " + key + " to " + normalized + " in " + path + ".");
-			if (key.equals(ConfigFile.IDENTITY) && !Path.of(normalized).isAbsolute() && !normalized.startsWith("~"))
+			if ((key.equals(ConfigFile.IDENTITY) || key.equals(ConfigFile.DEVICE_IDENTITY)) &&
+					!Path.of(normalized).isAbsolute() && !normalized.startsWith("~"))
 				output().message("A relative identity file is relative to the configuration file's directory.");
 		}
 	}
 
 	@Command(name = "unset", description = "Remove a setting from the configuration file.")
 	public static class UnsetCommand extends DirectorCommand {
-		@Parameters(index = "0", paramLabel = "<key>", description = "The setting: url, nodeId, resolve, identity or privateKey.")
+		@Parameters(index = "0", paramLabel = "<key>", description = "The setting, such as resolve or privateKey.")
 		String key;
 
 		@Override
 		protected void run() {
-			checkKey(key, false);
+			checkKey(tool(), key, false);
 			Path path = Settings.configFileLocation(tool(), context().environment(), context().options());
 			boolean removed = ConfigFile.unset(path, key);
 
@@ -231,30 +265,29 @@ public class ConfigCommand extends CliGroup {
 		}
 	}
 
-	/**
-	 * The keys 'config set' changes, for its help and shell completion.
-	 */
-	static class SettableKeys implements Iterable<String> {
-		@Override
-		public Iterator<String> iterator() {
-			return SETTABLE.iterator();
-		}
+	// The settings 'config set' changes: the private keys are left to 'identity import', off the command line.
+	private static List<String> settable(ToolSpec tool) {
+		return tool.configKeys().stream().filter(key -> !ConfigFile.SECRET_KEYS.contains(key)).toList();
 	}
 
-	private static void checkKey(String key, boolean settable) {
+	private static void checkKey(ToolSpec tool, String key, boolean settable) {
 		if (settable && key.equals(ConfigFile.PRIVATE_KEY))
 			throw CliException.usage("privateKey cannot be set from the command line, where your shell would keep it in its history.",
 					"Use 'identity import', which reads the key without showing it, or edit the file yourself.");
+		if (settable && key.equals(ConfigFile.DEVICE_PRIVATE_KEY))
+			throw CliException.usage("devicePrivateKey cannot be set from the command line, where your shell would keep it in its history.",
+					"Put the key in a device identity file and set deviceIdentity, or edit the configuration file yourself.");
 
-		if (ConfigFile.KEYS.contains(key))
+		List<String> keys = tool.configKeys();
+		if (keys.contains(key))
 			return;
 
-		for (String known : ConfigFile.KEYS)
+		for (String known : keys)
 			if (known.equalsIgnoreCase(key))
 				throw CliException.usage("Unknown setting '" + key + "'. Did you mean " + known + "?", null);
 
 		throw CliException.usage("Unknown setting '" + key + "'.",
-				"The settings are: " + String.join(", ", settable ? SETTABLE : ConfigFile.KEYS) + ".");
+				"The settings are: " + String.join(", ", settable ? settable(tool) : keys) + ".");
 	}
 
 	// Checks a value before it is written, so that a mistake is reported now rather than by every
@@ -289,10 +322,33 @@ public class ConfigCommand extends CliGroup {
 				}
 				return v;
 			}
-			case ConfigFile.IDENTITY -> {
+			case ConfigFile.IDENTITY, ConfigFile.DEVICE_IDENTITY -> {
 				if (v.isEmpty())
 					throw CliException.usage("The identity file name is empty.", null);
 				return v;
+			}
+			case ConfigFile.USER_ID -> {
+				try {
+					return Id.of(v).toBase58String();
+				} catch (IllegalArgumentException e) {
+					throw CliException.usage("'" + value + "' is not a valid user id.",
+							"A user id is Base58, such as the one '" + tool.name() + " identity show' prints.");
+				}
+			}
+			case ConfigFile.PROXY_UPSTREAM -> {
+				try {
+					Configuration.builder().upstream(v);
+				} catch (IllegalArgumentException e) {
+					throw CliException.usage(ErrorReporter.sentence(e.getMessage()),
+							"Use host:port for an http service, or scheme://host:port, such as tcp://127.0.0.1:22.");
+				}
+				return v;
+			}
+			case ConfigFile.PROXY_NAME_ACCESS, ConfigFile.PROXY_ANNOUNCE -> {
+				String flag = v.toLowerCase(Locale.ROOT);
+				if (flag.equals("true") || flag.equals("false"))
+					return flag;
+				throw CliException.usage(key + " is true or false, not '" + value + "'.", null);
 			}
 			default -> throw new IllegalStateException("Unchecked setting " + key);
 		}

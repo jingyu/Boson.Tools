@@ -22,17 +22,7 @@
 
 package io.bosonnetwork.cli.director;
 
-import java.net.ConnectException;
-import java.net.URL;
-import java.net.UnknownHostException;
-import java.nio.channels.ClosedChannelException;
-import java.security.cert.CertificateException;
-import java.util.concurrent.TimeoutException;
-import javax.net.ssl.SSLException;
-import javax.net.ssl.SSLHandshakeException;
-
 import io.bosonnetwork.Id;
-import io.bosonnetwork.cli.common.Causes;
 import io.bosonnetwork.cli.common.CliException;
 import io.bosonnetwork.cli.common.ErrorReporter;
 import io.bosonnetwork.cli.common.ErrorTranslator;
@@ -111,7 +101,7 @@ public class DirectorErrors implements ErrorTranslator {
 
 		int status = e.getStatus();
 		if (status == DirectorException.NO_HTTP_STATUS)
-			return connectionFailure(e);
+			return ConnectionFailures.director(e, context.directorUrl(), context.tool());
 		if (status >= 200 && status < 300)
 			return CliException.failed("The Director answered with something this tool cannot read.",
 					"Check that the URL is the Director of a Boson super node, of a version this tool supports.");
@@ -120,50 +110,6 @@ public class DirectorErrors implements ErrorTranslator {
 					"Use the URL it redirects to; often that is the https:// one.");
 
 		return CliException.failed("The Director refused the request (HTTP " + status + ")" + suffix(detail), null);
-	}
-
-	private CliException connectionFailure(DirectorException e) {
-		URL url = context.directorUrl();
-		String where = url != null ? url.toString() : "the Director";
-		String host = url != null ? url.getHost() : "the Director";
-		String chain = Causes.messages(e);
-		String reason = Causes.describe(Causes.rootCause(e));
-
-		if (Causes.hasCause(e, "NotSslRecordException") || chain.contains("not an ssl/tls record"))
-			return new CliException(ExitCode.UNAVAILABLE,
-					host + " did not answer the TLS handshake with TLS: it serves plain HTTP on this port.",
-					"Use an http:// URL for a Director with ssl: false or behind a TLS-terminating proxy, and https:// for one serving TLS itself.");
-
-		if (Causes.hasCause(e, CertificateException.class) ||
-				(Causes.hasCause(e, SSLHandshakeException.class) &&
-						(chain.contains("certificate") || chain.contains("pkix") || chain.contains("trust"))))
-			return new CliException(ExitCode.UNAVAILABLE, "The TLS certificate of " + host + " is not trusted: " + reason,
-					"For a self-signed Director certificate, set the node id (" + context.tool().command("config set nodeId <id>") +
-					"); for a certificate from a CA, use the host name it was issued for.");
-
-		if (Causes.hasCause(e, SSLException.class))
-			return new CliException(ExitCode.UNAVAILABLE, "The TLS connection to " + where + " failed: " + reason,
-					"Check the URL scheme: https:// needs a Director that serves TLS.");
-
-		if (Causes.hasCause(e, UnknownHostException.class))
-			return new CliException(ExitCode.UNAVAILABLE, "Cannot find the host " + host + ".",
-					"Check the host name in the URL, or connect to an address with --resolve.");
-
-		if (Causes.hasCause(e, ConnectException.class))
-			return new CliException(ExitCode.UNAVAILABLE,
-					"Cannot connect to " + where + ": " + (chain.contains("refused") ? "connection refused." : reason),
-					"Check the URL, and that the super node is running and reachable from here.");
-
-		if (Causes.hasCause(e, TimeoutException.class) || Causes.hasCause(e, "TimeoutException") || chain.contains("timed out"))
-			return new CliException(ExitCode.UNAVAILABLE, "Timed out connecting to " + where + ".",
-					"Check the URL, and that no firewall blocks the port.");
-
-		if (Causes.hasCause(e, ClosedChannelException.class) || chain.contains("connection reset") || chain.contains("closed"))
-			return new CliException(ExitCode.UNAVAILABLE, "The connection to " + where + " closed before the Director answered.",
-					"Check the URL scheme and port: an https:// URL for a plain HTTP port, or the reverse, ends this way.");
-
-		return new CliException(ExitCode.UNAVAILABLE, "Cannot reach the Director at " + where + ": " + reason,
-				"Run the command again with --verbose for the details.");
 	}
 
 	// The Director explains a refusal as "<reason> - <detail>"; the reason only restates the status.

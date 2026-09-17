@@ -28,16 +28,19 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 import io.vertx.core.Vertx;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpServer;
 
 import io.bosonnetwork.Id;
 import io.bosonnetwork.json.Json;
 
 /**
- * A stand-in for a Director: answers each request with the reply set for its method and path, and
- * records the requests. Tokens are not checked; the Director's own tests cover that.
+ * A stand-in for a Director, and for the services a super node offers: answers each request with the
+ * reply set for its method and path, and records the requests. Tokens are not checked; the Director's
+ * and the services' own tests cover that.
  */
 public final class StubDirector implements AutoCloseable {
 	/**
@@ -46,37 +49,69 @@ public final class StubDirector implements AutoCloseable {
 	 * @param method the method
 	 * @param path   the path
 	 * @param query  the query string, or {@code null}
-	 * @param body   the body
+	 * @param bytes  the body
 	 */
-	public record Request(String method, String path, String query, String body) {
+	public record Request(String method, String path, String query, byte[] bytes) {
+		/**
+		 * Returns the body as text.
+		 *
+		 * @return the body
+		 */
+		public String body() {
+			return new String(bytes, StandardCharsets.UTF_8);
+		}
+
 		/**
 		 * Parses the body as a JSON object.
 		 *
 		 * @return the object
 		 */
 		public Map<String, Object> json() {
-			return Json.parse(body);
+			return Json.parse(body());
 		}
 	}
 
-	private record Reply(int status, String body) {
+	/**
+	 * A reply.
+	 *
+	 * @param status  the status
+	 * @param body    the body
+	 * @param headers the headers
+	 */
+	public record Reply(int status, byte[] body, Map<String, String> headers) {
+		/**
+		 * Creates a JSON reply.
+		 *
+		 * @param status the status
+		 * @param body   the body
+		 * @return the reply
+		 */
+		public static Reply json(int status, String body) {
+			return new Reply(status, body.getBytes(StandardCharsets.UTF_8), Map.of("Content-Type", "application/json"));
+		}
 	}
 
 	private final Vertx vertx;
 	private final HttpServer server;
-	private final Map<String, Reply> replies = new ConcurrentHashMap<>();
+	private final Map<String, Function<Request, Reply>> replies = new ConcurrentHashMap<>();
 	private final List<Request> requests = new CopyOnWriteArrayList<>();
 
 	private StubDirector(Vertx vertx) throws Exception {
 		this.vertx = vertx;
 		this.server = vertx.createHttpServer()
 				.requestHandler(req -> req.body().onSuccess(body -> {
-					requests.add(new Request(req.method().name(), req.path(), req.query(), body.toString(StandardCharsets.UTF_8)));
-					Reply reply = replies.get(req.method().name() + " " + req.path());
-					if (reply == null)
+					Request request = new Request(req.method().name(), req.path(), req.query(), body.getBytes());
+					requests.add(request);
+					Function<Request, Reply> handler = replies.get(req.method().name() + " " + req.path());
+					if (handler == null) {
 						req.response().setStatusCode(404).end("Not Found - no stub reply for " + req.method() + " " + req.path());
-					else
-						req.response().setStatusCode(reply.status()).putHeader("Content-Type", "application/json").end(reply.body());
+						return;
+					}
+
+					Reply reply = handler.apply(request);
+					req.response().setStatusCode(reply.status());
+					reply.headers().forEach(req.response()::putHeader);
+					req.response().end(Buffer.buffer(reply.body()));
 				}))
 				.listen(0, "127.0.0.1")
 				.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
@@ -102,7 +137,20 @@ public final class StubDirector implements AutoCloseable {
 	 * @return this stub
 	 */
 	public StubDirector reply(String method, String path, int status, String body) {
-		replies.put(method + " " + path, new Reply(status, body));
+		Reply reply = Reply.json(status, body);
+		return handle(method, path, request -> reply);
+	}
+
+	/**
+	 * Sets what answers a request.
+	 *
+	 * @param method  the method
+	 * @param path    the path, without the query string
+	 * @param handler builds the reply from the request
+	 * @return this stub
+	 */
+	public StubDirector handle(String method, String path, Function<Request, Reply> handler) {
+		replies.put(method + " " + path, handler);
 		return this;
 	}
 
@@ -117,6 +165,25 @@ public final class StubDirector implements AutoCloseable {
 		reply("GET", "/api/v1/client/id", 200, body);
 		reply("GET", "/api/v1/admin/id", 200, body);
 		return this;
+	}
+
+	/**
+	 * Answers the node status lookup, naming services the stub itself answers for.
+	 *
+	 * @param nodeId   the node id
+	 * @param services the services: id, peer id and endpoint, three strings each
+	 * @return this stub
+	 */
+	public StubDirector nodeStatus(Id nodeId, String... services) {
+		StringBuilder list = new StringBuilder();
+		for (int i = 0; i < services.length; i += 3) {
+			if (i > 0)
+				list.append(", ");
+			list.append("{\"serviceId\": \"").append(services[i]).append("\", \"peerId\": \"").append(services[i + 1])
+					.append("\", \"endpoint\": \"").append(services[i + 2]).append("\"}");
+		}
+		return reply("GET", "/api/v1/client/node", 200, "{\"nodeId\": \"" + nodeId + "\", \"running\": true, " +
+				"\"startedAt\": 1, \"services\": [" + list + "]}");
 	}
 
 	/**

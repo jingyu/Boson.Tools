@@ -32,7 +32,7 @@ import java.util.Map;
 public final class ExitCode {
 	/** The command did what it was asked. */
 	public static final int OK = 0;
-	/** The command failed: the Director refused the request, or a check failed. */
+	/** The command failed: the super node refused the request, or a check failed. */
 	public static final int FAILED = 1;
 	/** The command line is wrong: an unknown command or option, or an invalid value. */
 	public static final int USAGE = 2;
@@ -44,7 +44,7 @@ public final class ExitCode {
 	public static final int NOT_AUTHORIZED = 5;
 	/** What the command would create already exists. */
 	public static final int CONFLICT = 6;
-	/** The Director could not be reached, is busy or rate limiting, or failed internally. */
+	/** The Director or a service could not be reached, is busy or rate limiting, or failed internally. */
 	public static final int UNAVAILABLE = 7;
 
 	private ExitCode() {
@@ -64,7 +64,7 @@ public final class ExitCode {
 		codes.put(Integer.toString(NOT_FOUND), "Not found");
 		codes.put(Integer.toString(NOT_AUTHORIZED), "Not authorized: identity, passphrase or permission");
 		codes.put(Integer.toString(CONFLICT), "Already exists");
-		codes.put(Integer.toString(UNAVAILABLE), "Director unreachable, busy or failing");
+		codes.put(Integer.toString(UNAVAILABLE), "Super node or service unreachable, busy or failing");
 		return codes;
 	}
 }

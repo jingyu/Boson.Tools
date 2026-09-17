@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Collection;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -120,6 +121,26 @@ public final class Formats {
 	public static String brief(String value, int maxLength) {
 		String text = text(value).replaceAll("\\s+", " ");
 		return text.length() <= maxLength ? text : text.substring(0, Math.max(0, maxLength - 3)) + "...";
+	}
+
+	/**
+	 * Formats a size in bytes for people: bytes below 1 KiB, otherwise binary units with one decimal.
+	 *
+	 * @param bytes the size
+	 * @return the size, such as {@code 512 B} or {@code 1.5 MiB}
+	 */
+	public static String bytes(long bytes) {
+		if (bytes < 1024)
+			return bytes + " B";
+
+		String[] units = {"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"};
+		double value = bytes;
+		int unit = -1;
+		while (value >= 1024 && unit < units.length - 1) {
+			value /= 1024;
+			unit++;
+		}
+		return String.format(Locale.ROOT, "%.1f %s", value, units[unit]);
 	}
 
 	/**

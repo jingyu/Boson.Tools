@@ -23,6 +23,8 @@
 package io.bosonnetwork.cli.common.testing;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
@@ -47,17 +49,26 @@ public final class CliRunner {
 	 * What a run of a tool left behind.
 	 *
 	 * @param exitCode the exit code
-	 * @param out      standard output
+	 * @param outBytes standard output, as written
 	 * @param err      standard error
 	 */
-	public record Result(int exitCode, String out, String err) {
+	public record Result(int exitCode, byte[] outBytes, String err) {
+		/**
+		 * Returns standard output as text.
+		 *
+		 * @return standard output, decoded as UTF-8
+		 */
+		public String out() {
+			return new String(outBytes, StandardCharsets.UTF_8);
+		}
+
 		/**
 		 * Parses standard output as a JSON object.
 		 *
 		 * @return the object
 		 */
 		public Map<String, Object> json() {
-			return Json.parse(out);
+			return Json.parse(out());
 		}
 
 		/**
@@ -66,12 +77,12 @@ public final class CliRunner {
 		 * @return the array
 		 */
 		public List<Object> jsonArray() {
-			return Json.parse(out, new TypeReference<List<Object>>() { });
+			return Json.parse(out(), new TypeReference<List<Object>>() { });
 		}
 
 		@Override
 		public String toString() {
-			return "exit " + exitCode + "\n--- out ---\n" + out + "--- err ---\n" + err;
+			return "exit " + exitCode + "\n--- out ---\n" + out() + "--- err ---\n" + err;
 		}
 	}
 
@@ -120,13 +131,15 @@ public final class CliRunner {
 	 * @return the result
 	 */
 	public Result runWithInput(String input, String... args) {
-		StringWriter out = new StringWriter();
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
 		StringWriter err = new StringWriter();
+		PrintWriter text = new PrintWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8), true);
 		CliEnvironment environment = new CliEnvironment(variables, configDir,
 				new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8)), null,
-				new PrintWriter(out, true), new PrintWriter(err, true));
+				text, new PrintWriter(err, true), out);
 
 		int exitCode = factory.apply(environment).execute(args);
-		return new Result(exitCode, out.toString(), err.toString());
+		text.flush();
+		return new Result(exitCode, out.toByteArray(), err.toString());
 	}
 }

@@ -60,8 +60,8 @@ import io.bosonnetwork.director.client.exceptions.PassphraseRequiredException;
 public class UserCommand extends CliGroup {
 
 	@Command(name = "register", description = {"Register your user with the super node.",
-			"The registration is proven with proof-of-work, which takes a few seconds. With --device-key, a device is "
-					+ "registered along with the user."})
+			"The registration is proven with proof-of-work, which takes a few seconds. With --device-name, a device is "
+					+ "registered along with the user: this machine, unless --device-key names another."})
 	public static class RegisterCommand extends DirectorCommand {
 		@Option(names = "--name", paramLabel = "<name>", description = "Your display name.")
 		String name;
@@ -80,24 +80,28 @@ public class UserCommand extends CliGroup {
 		InitialDevice device;
 
 		static class InitialDevice {
-			@Option(names = "--device-key", paramLabel = "<file>", required = true,
-					description = "The identity file of the device.")
-			Path key;
-
 			@Option(names = "--device-name", paramLabel = "<name>", required = true,
 					description = "A name for the device, such as \"Alice's laptop\".")
 			String name;
 
-			@Option(names = "--app", paramLabel = "<name>", required = true, description = "The app the device runs.")
+			@Option(names = "--device-key", paramLabel = "<file>",
+					description = "The identity file of the device. Default: this machine's device key, created if it "
+							+ "does not exist yet.")
+			Path key;
+
+			@Option(names = "--app", paramLabel = "<name>", defaultValue = DeviceCommand.DEFAULT_APP,
+					description = "The app the device runs. Default: ${DEFAULT-VALUE}.")
 			String app;
 		}
 
 		@Override
 		protected void run() throws Exception {
-			Signature.KeyPair deviceKey = device != null ? DeviceCommand.readDeviceKey(context(), device.key) : null;
+			// The connection and the user identity are checked before a device key is created.
+			context().directorClient();
+			DeviceCommand.DeviceKey deviceKey = device != null ? DeviceCommand.deviceKey(context(), device.key) : null;
 			String secret = passphrase ? terminal().readNewSecret("Passphrase for the account", "passphrase") : null;
 
-			DirectorClient client = context().directorClient(deviceKey);
+			DirectorClient client = context().directorClient(deviceKey != null ? deviceKey.key() : null);
 			UserRegistration registration = new UserRegistration()
 					.name(blankToNull(name))
 					.email(blankToNull(email))
@@ -126,9 +130,14 @@ public class UserCommand extends CliGroup {
 			}
 
 			output().message("Registered user " + client.getUserId() + " with " + client.getDirectorUrl() + ".");
-			if (device != null)
+			if (device != null) {
 				output().message("Registered device " + client.getDeviceId() + " (" + device.name + ", " + device.app +
 						") as its first device.");
+				deviceKey.report(context());
+			} else {
+				output().message("To use the node's services from this machine, register it as a device: " +
+						tool().command("device add --name <name>") + ".");
+			}
 		}
 	}
 

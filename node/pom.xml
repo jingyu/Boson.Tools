@@ -77,7 +77,6 @@
         <dependency>
             <groupId>io.bosonnetwork</groupId>
             <artifactId>boson-cli-common</artifactId>
-            <version>3.1.2-SNAPSHOT</version>
         </dependency>
 
         <dependency>

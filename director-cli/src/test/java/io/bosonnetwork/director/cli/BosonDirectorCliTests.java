@@ -123,6 +123,24 @@ public class BosonDirectorCliTests {
 	}
 
 	@Test
+	void theClientSettingsAreNotTheAdminToolsOwn(@TempDir Path dir) throws Exception {
+		CliRunner cli = new CliRunner(BosonDirectorCli::new, dir);
+		Result set = cli.run("config", "set", "proxyUpstream", "localhost:8080");
+		assertEquals(2, set.exitCode(), set::toString);
+		assertTrue(set.err().contains("Unknown setting 'proxyUpstream'"), set::toString);
+
+		Path config = dir.resolve("boson").resolve("director-cli.yaml");
+		Files.createDirectories(config.getParent());
+		Files.writeString(config, "url: " + director.url() + "\ndeviceIdentity: device.identity\n");
+		Result read = cli.run("node", "id");
+		assertEquals(3, read.exitCode(), read::toString);
+		assertTrue(read.err().contains("Unknown setting 'deviceIdentity'"), read::toString);
+
+		Result option = cli.run("--device-identity", "x", "node", "id");
+		assertEquals(2, option.exitCode(), option::toString);
+	}
+
+	@Test
 	void theSetupWizardsConfigurationIsRead(@TempDir Path dir) throws Exception {
 		Path config = dir.resolve("boson").resolve("director-cli.yaml");
 		Files.createDirectories(config.getParent());

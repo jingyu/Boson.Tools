@@ -54,6 +54,11 @@ import io.bosonnetwork.json.Json;
  * identity: user.identity # optional, relative to this file
  * privateKey: 3Jx...      # optional, instead of an identity file
  * </pre>
+ * {@code boson-cli} also takes the device it acts with ({@code deviceIdentity} or
+ * {@code devicePrivateKey}), the user a device acts for when the user key is not at hand
+ * ({@code userId}), and the defaults of {@code proxy start} ({@code proxyUpstream},
+ * {@code proxyNameAccess}, {@code proxyAnnounce}). Which keys a file may hold is up to its tool
+ * ({@link ToolSpec#configKeys()}).
  * Editing works on the lines of the file, not on a parsed and re-serialized document, so that the
  * comments explaining the settings survive every change.
  */
@@ -68,9 +73,30 @@ public final class ConfigFile {
 	public static final String IDENTITY = "identity";
 	/** The private key, inline. */
 	public static final String PRIVATE_KEY = "privateKey";
+	/** The user a device acts for, when the user key is not configured. */
+	public static final String USER_ID = "userId";
+	/** The device identity file. */
+	public static final String DEVICE_IDENTITY = "deviceIdentity";
+	/** The device private key, inline. */
+	public static final String DEVICE_PRIVATE_KEY = "devicePrivateKey";
+	/** The local service {@code proxy start} exposes. */
+	public static final String PROXY_UPSTREAM = "proxyUpstream";
+	/** Whether {@code proxy start} asks for a named endpoint. */
+	public static final String PROXY_NAME_ACCESS = "proxyNameAccess";
+	/** Whether {@code proxy start} announces the endpoint on the DHT. */
+	public static final String PROXY_ANNOUNCE = "proxyAnnounce";
 
-	/** Every setting, in the order they are documented. */
-	public static final List<String> KEYS = List.of(URL, NODE_ID, RESOLVE, IDENTITY, PRIVATE_KEY);
+	/** The settings of a tool that talks to the Director only, in the order they are documented. */
+	public static final List<String> DIRECTOR_KEYS = List.of(URL, NODE_ID, RESOLVE, IDENTITY, PRIVATE_KEY);
+	/** The settings of a tool that also uses the super node's services, in the order they are documented. */
+	public static final List<String> CLIENT_KEYS = List.of(URL, NODE_ID, RESOLVE, IDENTITY, PRIVATE_KEY, USER_ID,
+			DEVICE_IDENTITY, DEVICE_PRIVATE_KEY, PROXY_UPSTREAM, PROXY_NAME_ACCESS, PROXY_ANNOUNCE);
+	/** Every setting there is. */
+	public static final List<String> ALL_KEYS = CLIENT_KEYS;
+	/** The settings holding a private key, which the command line never takes. */
+	public static final List<String> SECRET_KEYS = List.of(PRIVATE_KEY, DEVICE_PRIVATE_KEY);
+	/** The settings holding a flag. */
+	public static final List<String> FLAG_KEYS = List.of(PROXY_NAME_ACCESS, PROXY_ANNOUNCE);
 
 	// What the setup wizard of earlier Director versions called privateKey.
 	private static final String RENAMED_ROOT_USER_KEY = "rootUserKey";
@@ -94,10 +120,11 @@ public final class ConfigFile {
 	 * Reads a configuration file. A file that does not exist is an empty configuration.
 	 *
 	 * @param path the file
+	 * @param keys the settings the file may hold
 	 * @return the configuration
-	 * @throws CliException if the file cannot be read, or holds anything but known settings
+	 * @throws CliException if the file cannot be read, or holds anything but those settings
 	 */
-	public static ConfigFile load(Path path) {
+	public static ConfigFile load(Path path, List<String> keys) {
 		if (!Files.exists(path))
 			return new ConfigFile(path, false, Map.of());
 
@@ -127,9 +154,9 @@ public final class ConfigFile {
 			if (key.equals(RENAMED_ROOT_USER_KEY))
 				throw CliException.config("The configuration file " + path + " sets rootUserKey, which is now called privateKey.",
 						"Rename rootUserKey to privateKey in " + path + ".");
-			if (!KEYS.contains(key))
+			if (!keys.contains(key))
 				throw CliException.config("Unknown setting '" + key + "' in " + path + ".",
-						"The settings are: " + String.join(", ", KEYS) + ".");
+						"The settings are: " + String.join(", ", keys) + ".");
 			if (value.isContainerNode())
 				throw CliException.config("The setting '" + key + "' in " + path + " must be a single value.", null);
 
@@ -161,7 +188,7 @@ public final class ConfigFile {
 	/**
 	 * Returns a setting.
 	 *
-	 * @param key the setting, one of {@link #KEYS}
+	 * @param key the setting, one of {@link #ALL_KEYS}
 	 * @return the value, or {@code null} if it is not set
 	 */
 	public String get(String key) {
@@ -193,7 +220,7 @@ public final class ConfigFile {
 	 * templates carry; failing that, the setting is appended. Every other line is kept as it is.
 	 *
 	 * @param path   the file
-	 * @param key    the setting, one of {@link #KEYS}
+	 * @param key    the setting, one of {@link #ALL_KEYS}
 	 * @param value  the value
 	 * @param header the comment starting a new file
 	 * @throws CliException if the file cannot be read or written
@@ -246,7 +273,7 @@ public final class ConfigFile {
 	 * Removes a setting from a configuration file.
 	 *
 	 * @param path the file
-	 * @param key  the setting, one of {@link #KEYS}
+	 * @param key  the setting, one of {@link #ALL_KEYS}
 	 * @return {@code true} if the file set it
 	 * @throws CliException if the file cannot be read or written
 	 */
@@ -305,7 +332,29 @@ public final class ConfigFile {
 				n +
 				"# The identity file requests are signed with, relative to this file." + n +
 				"# Default: " + tool.defaultIdentityFileName() + n +
-				"# " + IDENTITY + ": " + tool.defaultIdentityFileName() + n;
+				"# " + IDENTITY + ": " + tool.defaultIdentityFileName() + n +
+				(tool.hasDevice() ? clientTemplate(tool) : "");
+	}
+
+	private static String clientTemplate(ToolSpec tool) {
+		String n = System.lineSeparator();
+		return n +
+				"# The key of this device, relative to this file. The node's services -" + n +
+				"# objects, the DHT, the proxy - are used as a device of your account:" + n +
+				"# register it with '" + tool.name() + " device add --name <name>'." + n +
+				"# Default: " + tool.defaultDeviceIdentityFileName() + n +
+				"# " + DEVICE_IDENTITY + ": " + tool.defaultDeviceIdentityFileName() + n +
+				n +
+				"# Optional: the user this device acts for, when the user identity is not" + n +
+				"# on this machine. With a user identity, it is that identity's id." + n +
+				"# " + USER_ID + ":" + n +
+				n +
+				"# The defaults of '" + tool.name() + " proxy start': the local service to" + n +
+				"# expose, as host:port or scheme://host:port, whether to ask for a named" + n +
+				"# https endpoint, and whether to announce the endpoint on the DHT." + n +
+				"# " + PROXY_UPSTREAM + ": localhost:8080" + n +
+				"# " + PROXY_NAME_ACCESS + ": false" + n +
+				"# " + PROXY_ANNOUNCE + ": false" + n;
 	}
 
 	/**

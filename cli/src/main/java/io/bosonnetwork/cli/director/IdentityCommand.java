@@ -81,22 +81,54 @@ public class IdentityCommand extends CliGroup {
 		}
 	}
 
-	@Command(name = "show", description = "Show the id of the identity in effect, and where it comes from.")
+	@Command(name = "show", description = {"Show the id of the identity in effect, and where it comes from.",
+			"For boson-cli, also the device it acts as."})
 	public static class ShowCommand extends DirectorCommand {
 		@Override
 		protected void run() {
-			Signature.KeyPair key = context().identity();
 			Settings settings = context().settings();
-			Setting identity = settings.identity();
-			Path file = settings.identityFile();
-			Id id = Id.of(key.publicKey().bytes());
+			if (!tool().hasDevice()) {
+				Signature.KeyPair key = context().identity();
+				show(key, settings.identity(), settings.identityFile());
+				return;
+			}
+
+			// A device may act for a user whose key is elsewhere: then the user is its configured id.
+			Signature.KeyPair userKey = settings.identityKeyIfConfigured();
+			Signature.KeyPair deviceKey = settings.deviceKeyIfConfigured();
+			if (userKey == null && settings.userId() == null)
+				context().identity();	// fails, explaining how to create one
+
+			Map<String, Object> user = userKey != null ?
+					entry(Id.of(context().identity().publicKey().bytes()), settings.identity(), settings.identityFile()) :
+					entry(context().userId(), settings.userId(), null);
+			Map<String, Object> device = deviceKey != null ?
+					entry(Id.of(context().deviceKey().publicKey().bytes()), settings.deviceIdentity(), settings.deviceIdentityFile()) :
+					null;
 
 			if (output().isJson()) {
-				Map<String, Object> json = new LinkedHashMap<>();
-				json.put("id", id);
-				json.put("file", file != null ? file.toString() : null);
-				json.put("from", identity.origin());
+				Map<String, Object> json = new LinkedHashMap<>(user);
+				json.put("device", device);
 				output().json(json);
+				return;
+			}
+
+			Map<String, String> rows = new LinkedHashMap<>();
+			rows.put("User id", user.get("id").toString());
+			rows.put("User key", userKey != null ? describe(user) : "not on this machine; the user id is from " + user.get("from"));
+			if (device != null) {
+				rows.put("Device id", device.get("id").toString());
+				rows.put("Device key", describe(device));
+			} else {
+				rows.put("Device", "none: register this machine with " + tool().command("device add --name <name>"));
+			}
+			output().details(rows);
+		}
+
+		private void show(Signature.KeyPair key, Setting identity, Path file) {
+			Id id = Id.of(key.publicKey().bytes());
+			if (output().isJson()) {
+				output().json(entry(id, identity, file));
 				return;
 			}
 
@@ -106,6 +138,19 @@ public class IdentityCommand extends CliGroup {
 			if (file != null)
 				rows.put("From", identity.origin());
 			output().details(rows);
+		}
+
+		private static Map<String, Object> entry(Id id, Setting setting, Path file) {
+			Map<String, Object> json = new LinkedHashMap<>();
+			json.put("id", id);
+			json.put("file", file != null ? file.toString() : null);
+			json.put("from", setting.origin());
+			return json;
+		}
+
+		private static String describe(Map<String, Object> entry) {
+			return entry.get("file") != null ? entry.get("file") + " (from " + entry.get("from") + ")" :
+					"the private key given in " + entry.get("from");
 		}
 	}
 

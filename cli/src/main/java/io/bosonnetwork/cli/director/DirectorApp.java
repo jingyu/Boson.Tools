@@ -80,8 +80,18 @@ public abstract class DirectorApp extends CliApp {
 	 */
 	public final CliContext context() {
 		if (context == null)
-			context = new CliContext(tool(), environment(), connectionOptions, output(), terminal());
+			context = new CliContext(tool(), environment(), connectionOptions, deviceOptions(), output(), terminal());
 		return context;
+	}
+
+	/**
+	 * Returns the device option of a tool that acts as a device as well, which declares it as a
+	 * mixin of its own.
+	 *
+	 * @return the option, or {@code null} for a tool that acts with no device
+	 */
+	protected DeviceOptions deviceOptions() {
+		return null;
 	}
 
 	@Override

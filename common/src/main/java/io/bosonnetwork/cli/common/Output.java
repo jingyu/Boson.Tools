@@ -122,6 +122,34 @@ public final class Output {
 	}
 
 	/**
+	 * Writes an event as JSON on one line, for a command that reports as it goes: a script reads one
+	 * object per line. Standard output is flushed, so that a reader sees each event when it happens.
+	 *
+	 * @param value the event
+	 */
+	public void jsonLine(Object value) {
+		try {
+			out.println(Json.objectMapper().writeValueAsString(value));
+			out.flush();
+		} catch (JsonProcessingException e) {
+			throw new IllegalStateException("Cannot write JSON output: " + e.getMessage(), e);
+		}
+	}
+
+	/**
+	 * Writes a message for people, and flushes it at once: for a command that runs until it is
+	 * stopped. Nothing in JSON mode.
+	 *
+	 * @param text the message
+	 */
+	public void event(String text) {
+		if (!json) {
+			out.println(text);
+			out.flush();
+		}
+	}
+
+	/**
 	 * Writes labelled values, one per line, with the values aligned. A value spanning several lines is
 	 * indented to stay aligned.
 	 *

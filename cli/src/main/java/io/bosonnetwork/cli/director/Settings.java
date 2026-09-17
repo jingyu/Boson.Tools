@@ -56,6 +56,12 @@ public final class Settings {
 	public static final String ENV_IDENTITY = "BOSON_IDENTITY";
 	/** The environment variable holding the private key itself. */
 	public static final String ENV_PRIVATE_KEY = "BOSON_PRIVATE_KEY";
+	/** The environment variable holding the user id a device acts for. */
+	public static final String ENV_USER_ID = "BOSON_USER_ID";
+	/** The environment variable naming the device identity file. */
+	public static final String ENV_DEVICE_IDENTITY = "BOSON_DEVICE_IDENTITY";
+	/** The environment variable holding the device private key itself. */
+	public static final String ENV_DEVICE_PRIVATE_KEY = "BOSON_DEVICE_PRIVATE_KEY";
 
 	/**
 	 * Where a setting comes from.
@@ -99,7 +105,7 @@ public final class Settings {
 		}
 
 		/**
-		 * Returns the setting's key: one of {@link ConfigFile#KEYS}, or {@code config} for the
+		 * Returns the setting's key: one of {@link ConfigFile#ALL_KEYS}, or {@code config} for the
 		 * configuration file itself.
 		 *
 		 * @return the key
@@ -141,16 +147,19 @@ public final class Settings {
 	private final ToolSpec tool;
 	private final CliEnvironment environment;
 	private final ConnectionOptions options;
+	private final DeviceOptions deviceOptions;
 	private final Setting configFile;
 	private final ConfigFile config;
 	private final Setting url;
 	private final Setting nodeId;
 	private final Setting resolve;
 
-	private Settings(ToolSpec tool, CliEnvironment environment, ConnectionOptions options, Setting configFile, ConfigFile config) {
+	private Settings(ToolSpec tool, CliEnvironment environment, ConnectionOptions options, DeviceOptions deviceOptions,
+			Setting configFile, ConfigFile config) {
 		this.tool = tool;
 		this.environment = environment;
 		this.options = options;
+		this.deviceOptions = deviceOptions;
 		this.configFile = configFile;
 		this.config = config;
 		this.url = pick(ConfigFile.URL, options.url(), "--url", ENV_URL);
@@ -161,16 +170,19 @@ public final class Settings {
 	/**
 	 * Resolves the settings of a command.
 	 *
-	 * @param tool        the tool
-	 * @param environment the environment
-	 * @param options     the global options given on the command line
+	 * @param tool          the tool
+	 * @param environment   the environment
+	 * @param options       the global options given on the command line
+	 * @param deviceOptions the device option given on the command line, or {@code null} for a tool that
+	 *                      acts with no device
 	 * @return the settings
 	 * @throws CliException if the configuration file cannot be read
 	 */
-	public static Settings resolve(ToolSpec tool, CliEnvironment environment, ConnectionOptions options) {
+	public static Settings resolve(ToolSpec tool, CliEnvironment environment, ConnectionOptions options,
+			DeviceOptions deviceOptions) {
 		Setting configFile = configFileSetting(tool, environment, options);
 		Path path = expandHome(configFile.value(), null);
-		return new Settings(tool, environment, options, configFile, ConfigFile.load(path));
+		return new Settings(tool, environment, options, deviceOptions, configFile, ConfigFile.load(path, tool.configKeys()));
 	}
 
 	/**
@@ -194,10 +206,12 @@ public final class Settings {
 		return new Setting("config", tool.defaultConfigFile().toString(), Source.DEFAULT, "default");
 	}
 
+	// A setting from the option, the variable or the file; either of the first two may be null for a
+	// setting that has no such form.
 	private Setting pick(String key, String option, String optionName, String variable) {
 		if (option != null && !option.isBlank())
 			return new Setting(key, option.strip(), Source.OPTION, optionName);
-		if (environment.variable(variable) != null)
+		if (variable != null && environment.variable(variable) != null)
 			return new Setting(key, environment.variable(variable), Source.ENVIRONMENT, variable);
 		if (config.get(key) != null)
 			return new Setting(key, config.get(key), Source.FILE, key + " in " + config.path());
@@ -259,6 +273,63 @@ public final class Settings {
 	}
 
 	/**
+	 * Returns the setting of the user id a device acts for.
+	 *
+	 * @return the setting, or {@code null} if it is not set
+	 */
+	public Setting userId() {
+		return pick(ConfigFile.USER_ID, null, null, ENV_USER_ID);
+	}
+
+	/**
+	 * Returns the configured user id.
+	 *
+	 * @return the user id, or {@code null} if it is not set
+	 * @throws CliException if it is not a valid id
+	 */
+	public Id userIdValue() {
+		Setting userId = userId();
+		if (userId == null)
+			return null;
+
+		try {
+			return Id.of(userId.value());
+		} catch (IllegalArgumentException e) {
+			throw CliException.config("The user id '" + userId.value() + "' (from " + userId.origin() + ") is not a valid id.",
+					"A user id is Base58, such as the one '" + tool.name() + " identity show' prints.");
+		}
+	}
+
+	/**
+	 * Returns a setting of {@code proxy start}, which the command line overrides.
+	 *
+	 * @param key one of {@link ConfigFile#PROXY_UPSTREAM}, {@link ConfigFile#PROXY_NAME_ACCESS} and
+	 *            {@link ConfigFile#PROXY_ANNOUNCE}
+	 * @return the setting, or {@code null} if it is not set
+	 */
+	public Setting proxy(String key) {
+		return pick(key, null, null, null);
+	}
+
+	/**
+	 * Returns the value of a flag setting.
+	 *
+	 * @param setting the setting, or {@code null}
+	 * @return the flag, or {@code null} if it is not set
+	 * @throws CliException if it is neither true nor false
+	 */
+	public static Boolean flag(Setting setting) {
+		if (setting == null)
+			return null;
+		if (setting.value().equalsIgnoreCase("true"))
+			return true;
+		if (setting.value().equalsIgnoreCase("false"))
+			return false;
+		throw CliException.config("The setting " + setting.key() + " (from " + setting.origin() + ") is '" +
+				setting.value() + "', but it has to be true or false.", null);
+	}
+
+	/**
 	 * Returns the identity setting: an identity file ({@link ConfigFile#IDENTITY}), or the private key
 	 * itself ({@link ConfigFile#PRIVATE_KEY}). Without either, the default identity file beside the
 	 * configuration file.
@@ -267,31 +338,51 @@ public final class Settings {
 	 * @throws CliException if one place sets both an identity file and a private key
 	 */
 	public Setting identity() {
-		if (options.identity() != null)
-			return new Setting(ConfigFile.IDENTITY, options.identity().toString(), Source.OPTION, "--identity");
+		return identity(ConfigFile.IDENTITY, ConfigFile.PRIVATE_KEY, options.identity(), "--identity",
+				ENV_IDENTITY, ENV_PRIVATE_KEY, tool.defaultIdentityFileName());
+	}
 
-		String file = environment.variable(ENV_IDENTITY);
-		String key = environment.variable(ENV_PRIVATE_KEY);
+	/**
+	 * Returns the device identity setting: a device identity file ({@link ConfigFile#DEVICE_IDENTITY}),
+	 * or the device private key itself ({@link ConfigFile#DEVICE_PRIVATE_KEY}). Without either, the
+	 * default device identity file beside the configuration file.
+	 *
+	 * @return the setting
+	 * @throws CliException if one place sets both a device identity file and a device private key
+	 * @throws IllegalStateException if the tool acts with no device
+	 */
+	public Setting deviceIdentity() {
+		return identity(ConfigFile.DEVICE_IDENTITY, ConfigFile.DEVICE_PRIVATE_KEY,
+				deviceOptions != null ? deviceOptions.deviceIdentity() : null, "--device-identity",
+				ENV_DEVICE_IDENTITY, ENV_DEVICE_PRIVATE_KEY, tool.defaultDeviceIdentityFileName());
+	}
+
+	private Setting identity(String fileKey, String privateKeyKey, Path option, String optionName,
+			String fileVariable, String keyVariable, String defaultFileName) {
+		if (option != null)
+			return new Setting(fileKey, option.toString(), Source.OPTION, optionName);
+
+		String file = environment.variable(fileVariable);
+		String key = environment.variable(keyVariable);
 		if (file != null && key != null)
-			throw CliException.config("Both " + ENV_IDENTITY + " and " + ENV_PRIVATE_KEY + " are set.",
+			throw CliException.config("Both " + fileVariable + " and " + keyVariable + " are set.",
 					"Unset one of them.");
 		if (key != null)
-			return new Setting(ConfigFile.PRIVATE_KEY, key, Source.ENVIRONMENT, ENV_PRIVATE_KEY);
+			return new Setting(privateKeyKey, key, Source.ENVIRONMENT, keyVariable);
 		if (file != null)
-			return new Setting(ConfigFile.IDENTITY, file, Source.ENVIRONMENT, ENV_IDENTITY);
+			return new Setting(fileKey, file, Source.ENVIRONMENT, fileVariable);
 
-		file = config.get(ConfigFile.IDENTITY);
-		key = config.get(ConfigFile.PRIVATE_KEY);
+		file = config.get(fileKey);
+		key = config.get(privateKeyKey);
 		if (file != null && key != null)
-			throw CliException.config("The configuration file " + config.path() + " sets both identity and privateKey.",
-					"Remove one of them.");
+			throw CliException.config("The configuration file " + config.path() + " sets both " + fileKey + " and " +
+					privateKeyKey + ".", "Remove one of them.");
 		if (key != null)
-			return new Setting(ConfigFile.PRIVATE_KEY, key, Source.FILE, "privateKey in " + config.path());
+			return new Setting(privateKeyKey, key, Source.FILE, privateKeyKey + " in " + config.path());
 		if (file != null)
-			return new Setting(ConfigFile.IDENTITY, file, Source.FILE, "identity in " + config.path());
+			return new Setting(fileKey, file, Source.FILE, fileKey + " in " + config.path());
 
-		return new Setting(ConfigFile.IDENTITY, configDirectory().resolve(tool.defaultIdentityFileName()).toString(),
-				Source.DEFAULT, "default");
+		return new Setting(fileKey, configDirectory().resolve(defaultFileName).toString(), Source.DEFAULT, "default");
 	}
 
 	/**
@@ -301,8 +392,22 @@ public final class Settings {
 	 * @throws CliException if one place sets both an identity file and a private key
 	 */
 	public Path identityFile() {
-		Setting identity = identity();
-		if (!identity.key().equals(ConfigFile.IDENTITY))
+		return file(identity());
+	}
+
+	/**
+	 * Returns the device identity file.
+	 *
+	 * @return the file, or {@code null} if the device identity is a private key given inline
+	 * @throws CliException if one place sets both a device identity file and a device private key
+	 */
+	public Path deviceIdentityFile() {
+		return file(deviceIdentity());
+	}
+
+	// The file an identity setting names, or null for a private key given inline.
+	private Path file(Setting identity) {
+		if (ConfigFile.SECRET_KEYS.contains(identity.key()))
 			return null;
 
 		// A file named in the configuration is relative to it; one named on the command line or in the
@@ -386,25 +491,9 @@ public final class Settings {
 	 * @throws CliException if there is no identity, or it is not valid
 	 */
 	public Signature.KeyPair identityKey() {
-		Setting identity = identity();
-		if (identity.key().equals(ConfigFile.PRIVATE_KEY)) {
-			try {
-				return Keys.privateKey(identity.value(), "private key (from " + identity.origin() + ")");
-			} catch (CliException e) {
-				throw CliException.config(e.getMessage(), null);
-			}
-		}
-
-		Path file = Objects.requireNonNull(identityFile());
-		if (!Files.exists(file)) {
-			String hint = "Create one with " + tool.command("identity create") + ", or import an existing private key with " +
-					tool.command("identity import") + ".";
-			if (identity.source() == Source.DEFAULT)
-				throw CliException.config("No " + tool.identityRole() + " identity: " + file + " does not exist.", hint);
-			throw CliException.config("The identity file " + file + " (from " + identity.origin() + ") does not exist.", hint);
-		}
-
-		return IdentityFile.read(file, "identity file");
+		String hint = "Create one with " + tool.command("identity create") + ", or import an existing private key with " +
+				tool.command("identity import") + ".";
+		return key(identity(), "No " + tool.identityRole() + " identity", "private key", "identity file", hint);
 	}
 
 	/**
@@ -416,9 +505,56 @@ public final class Settings {
 	 */
 	public Signature.KeyPair identityKeyIfConfigured() {
 		Setting identity = identity();
-		if (identity.source() == Source.DEFAULT && !Files.exists(Objects.requireNonNull(identityFile())))
+		if (identity.source() == Source.DEFAULT && !Files.exists(Objects.requireNonNull(file(identity))))
 			return null;
 		return identityKey();
+	}
+
+	/**
+	 * Returns the key of the device the tool acts as.
+	 *
+	 * @return the key pair
+	 * @throws CliException if there is no device identity, or it is not valid
+	 */
+	public Signature.KeyPair deviceKey() {
+		String hint = "The node's services are used as a device of your account. Register this machine with " +
+				tool.command("device add --name <name>") + ", which creates the device key; a new user registers " +
+				"with its first device in one step with " + tool.command("user register --device-name <name>") + ".";
+		return key(deviceIdentity(), "No device is configured", "device private key", "device identity file", hint);
+	}
+
+	/**
+	 * Returns the key of the device the tool acts as, if there is one: the default device identity file
+	 * may be missing.
+	 *
+	 * @return the key pair, or {@code null} if no device identity is configured and the default file
+	 *         does not exist
+	 * @throws CliException if a configured device identity is missing or not valid
+	 */
+	public Signature.KeyPair deviceKeyIfConfigured() {
+		Setting identity = deviceIdentity();
+		if (identity.source() == Source.DEFAULT && !Files.exists(Objects.requireNonNull(file(identity))))
+			return null;
+		return deviceKey();
+	}
+
+	private Signature.KeyPair key(Setting identity, String missing, String keyName, String fileName, String hint) {
+		if (ConfigFile.SECRET_KEYS.contains(identity.key())) {
+			try {
+				return Keys.privateKey(identity.value(), keyName + " (from " + identity.origin() + ")");
+			} catch (CliException e) {
+				throw CliException.config(e.getMessage(), null);
+			}
+		}
+
+		Path file = Objects.requireNonNull(file(identity));
+		if (!Files.exists(file)) {
+			if (identity.source() == Source.DEFAULT)
+				throw CliException.config(missing + ": " + file + " does not exist.", hint);
+			throw CliException.config("The " + fileName + " " + file + " (from " + identity.origin() + ") does not exist.", hint);
+		}
+
+		return IdentityFile.read(file, fileName);
 	}
 
 	private Path configDirectory() {

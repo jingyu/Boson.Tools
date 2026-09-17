@@ -19,7 +19,8 @@
     <name>Boson CLI</name>
     <description>
         The Boson command line client: registers a user with a super node and manages the user's
-        profile and devices, and works with Boson keys offline. Also holds what boson-director-cli
+        profile and devices, uses the node's services - the Ion Store, the DHT through the web gateway,
+        and the Active Proxy - and works with Boson keys offline. Also holds what boson-director-cli
         shares with it: configuration, identity files, prompting and output.
     </description>
     <url>https://github.com/bosonnetwork/Boson.Tools</url>
@@ -77,7 +78,6 @@
         <dependency>
             <groupId>io.bosonnetwork</groupId>
             <artifactId>boson-cli-common</artifactId>
-            <version>3.1.2-SNAPSHOT</version>
         </dependency>
 
         <dependency>
@@ -88,7 +88,20 @@
         <dependency>
             <groupId>io.bosonnetwork</groupId>
             <artifactId>boson-director-client</artifactId>
-            <version>3.1.2-SNAPSHOT</version>
+        </dependency>
+
+        <!-- The services of a super node: objects, the DHT through the web gateway, and the proxy. -->
+        <dependency>
+            <groupId>io.bosonnetwork</groupId>
+            <artifactId>boson-ion-store-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.bosonnetwork</groupId>
+            <artifactId>boson-higgs</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.bosonnetwork</groupId>
+            <artifactId>boson-active-proxy-client</artifactId>
         </dependency>
 
         <dependency>

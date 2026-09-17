@@ -4,12 +4,13 @@ Command line tools for [Boson](https://github.com/bosonnetwork):
 
 | Tool | For |
 |---|---|
-| `boson-cli` | Users and developers: register with a super node, manage your profile, passphrase and devices, and work with Boson keys offline |
+| `boson-cli` | Users and developers: register with a super node, manage your profile, passphrase and devices, use the node's services - objects, the DHT, the proxy - and work with Boson keys offline |
 | `boson-director-cli` | Operators: administer a super node through its Director's admin API - users, devices, plans and features, subscriptions, the blacklist and federation |
 | `boson-node` | Node operators and developers: run a DHT node, write and check its configuration, and explore the network from an interactive shell |
 
 They hold no protocol code of their own: the first two are built on the clients in
-`boson-director-client`, and `boson-node` on `boson-dht`. What they share - the root command wiring,
+`boson-director-client` - and `boson-cli` also on `boson-ion-store-client`, `boson-higgs` and
+`boson-active-proxy-client` - and `boson-node` on `boson-dht`. What they share - the root command wiring,
 output, terminal, exit codes and error reporting - is in `boson-cli-common`, so every tool takes the
 same global options and reports failures the same way.
 
@@ -37,8 +38,20 @@ The packages link them into `/usr/bin` without it, so what an operator types sta
 ```sh
 boson-cli config init --url https://node.example.com:9000
 boson-cli identity create
-boson-cli user register --name Alice
+boson-cli user register --name Alice --device-name "Alice's laptop"
 boson-cli user show
+```
+
+`--device-name` registers this machine as the user's first device, creating its key. The node's services
+are used as a device, so a user registered without one adds it later with
+`boson-cli device add --name "Alice's laptop"`. Then nothing more is configured: the services are found
+through the Director.
+
+```sh
+boson-cli object put photo.jpg                   # prints the object's ions:// address
+boson-cli object get ions://<peer-id>/<object-id>
+boson-cli dht store --key greeting.key --persistent "Hello"
+boson-cli proxy start --upstream localhost:8080   # until Ctrl+C
 ```
 
 On a super node, the setup wizard writes `boson-director-cli`'s configuration for the account that runs
@@ -60,10 +73,22 @@ identity: user.identity              # optional: the identity file, relative to 
 privateKey: 3Jx...                   # optional: the key itself, instead of an identity file
 ```
 
+`boson-cli` takes a few settings more:
+
+```yaml
+deviceIdentity: device.identity      # optional: this machine's device key, relative to this file
+devicePrivateKey: 3Jx...             # optional: the key itself, instead of a device identity file
+userId: 5vVHp...                     # optional: the user a device acts for, without the user key here
+proxyUpstream: localhost:8080        # optional: what 'proxy start' exposes, [scheme://]host:port
+proxyNameAccess: false               # optional: ask for an https name as well
+proxyAnnounce: false                 # optional: announce the proxy's address on the DHT
+```
+
 | | `boson-cli` | `boson-director-cli` |
 |---|---|---|
 | Configuration | `~/.config/boson/client/boson.yaml` | `~/.config/boson/director-cli.yaml` |
 | Default identity | `user.identity` beside the configuration | `admin.identity` beside the configuration |
+| Default device identity | `device.identity` beside the configuration | - |
 
 On Windows, `~/.config` is `%APPDATA%`; elsewhere `$XDG_CONFIG_HOME` is honored.
 
@@ -77,9 +102,16 @@ Each setting comes from the first place that has it:
 | `resolve` | `--resolve` | `BOSON_DIRECTOR_RESOLVE` |
 | `identity` | `-i`, `--identity` | `BOSON_IDENTITY` |
 | `privateKey` | - | `BOSON_PRIVATE_KEY` |
+| `deviceIdentity` | `-d`, `--device-identity` | `BOSON_DEVICE_IDENTITY` |
+| `devicePrivateKey` | - | `BOSON_DEVICE_PRIVATE_KEY` |
+| `userId` | - | `BOSON_USER_ID` |
+| `proxyUpstream`, `proxyNameAccess`, `proxyAnnounce` | `proxy start --upstream`, `--[no-]name-access`, `--[no-]announce` | - |
 
 then the configuration file, then the default. `config show` shows the settings in effect and where
 each comes from.
+
+There are no settings for the services: the Director's node status names each service's peer id and
+endpoint, and the tool uses what it reports.
 
 `config init` and `config set` write the file; they keep its comments, never replace an existing file
 with `init`, and refuse to take a private key on the command line, where the shell would keep it in its
@@ -97,11 +129,30 @@ Every command follows `<tool> <group> <verb>`, with the same verbs throughout: `
 ```
 user register | show | update | avatar get | avatar set | passphrase set | passphrase change | passphrase clear
 device list | add | remove
+object put | get | list | show | remove
+dht id | find node | find value | find peer | store | announce
+dht value list | show | remove
+dht peer list | show | remove
+proxy start
 node id | status
 config init | show | set | unset
 identity create | import | show
 util keygen | check-key | public-key | sign | hex-to-base58 | base58-to-hex
 ```
+
+- `object` (alias `ion`) is the Ion Store. An object is named by its id on your super node, or by its
+  `ions://<peer-id>/<object-id>` address on any node, which the node fetches for you. `put --encrypt`
+  encrypts here with a new key that is printed, and `get --key` decrypts; `get` writes to a file named
+  after the object unless `--output` names one (`-` for standard output), and needs no account.
+  Aliases: `upload`, `download`, `delete`.
+- `dht` (alias `higgs`) is the DHT, through the node's web gateway, as this machine's device. A mutable
+  value or a peer is named by the key file that signs it (`--key`, created if missing): running the same
+  command again updates it with the next sequence number. `announce` without `--key` announces this
+  device. `--persistent` has the gateway keep it announced; `dht value` and `dht peer` list and remove
+  what it keeps.
+- `proxy start` runs the Active Proxy client in the foreground until Ctrl+C, exposing a service on this
+  machine at an address of the super node. One runs per device. With `--json` it prints one JSON event
+  per line (`connected`, `disconnected`).
 
 `boson-director-cli`:
 
@@ -166,7 +217,7 @@ it the way a node does and says what is wrong with it.
 | 4 | Not found |
 | 5 | Not authorized: identity, passphrase or permission |
 | 6 | Already exists |
-| 7 | Director unreachable, busy or failing |
+| 7 | Super node or service unreachable, busy or failing |
 
 ## Coming from the Rust tools
 
@@ -197,5 +248,6 @@ read `~/.config/boson/user.identity`; pass `--identity` to use another file.
 mvn test
 ```
 
-The tests run the commands against a stub Director. The end-to-end tests of the clients the tools are
+The tests run the commands against a stub that answers for the Director and for the services it
+reports. The end-to-end tests of the clients the tools are
 built on are maintained with the Director.
