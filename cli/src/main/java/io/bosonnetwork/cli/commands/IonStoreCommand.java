@@ -64,18 +64,18 @@ import io.bosonnetwork.ionstore.exceptions.DecryptionException;
 import io.bosonnetwork.web.PaginatedResult;
 
 /**
- * The {@code object} commands of {@code boson-cli}: objects in the super node's Ion Store.
+ * The {@code ionstore} commands of {@code boson-cli}: objects in the super node's Ion Store.
  * <p>
  * An object is named by its id on the user's own super node, or by its {@code ions://<peerId>/<id>}
  * address on any node; the node fetches an object held elsewhere.
  */
-@Command(name = "object", aliases = "ion",
+@Command(name = "ionstore", aliases = "ion",
 		description = {"Store, retrieve, list and remove objects in the super node's Ion Store.",
 				"An object is named by its id on your super node, or by its ions:// address on any node. Storing, "
 						+ "listing and removing use this machine's device; retrieving needs no account."},
-		subcommands = {ObjectCommand.PutCommand.class, ObjectCommand.GetCommand.class, ObjectCommand.ListCommand.class,
-				ObjectCommand.ShowCommand.class, ObjectCommand.RemoveCommand.class})
-public class ObjectCommand extends CliGroup {
+		subcommands = {IonStoreCommand.PutCommand.class, IonStoreCommand.GetCommand.class, IonStoreCommand.ListCommand.class,
+				IonStoreCommand.ShowCommand.class, IonStoreCommand.RemoveCommand.class})
+public class IonStoreCommand extends CliGroup {
 	private static final String REFERENCE_DESCRIPTION = "The object: its id, or its ions://<peer-id>/<object-id> address.";
 	private static final String STDIO = "-";
 
@@ -156,7 +156,7 @@ public class ObjectCommand extends CliGroup {
 			output().details(rows);
 			if (key != null)
 				output().message("Keep the key: without it, nobody - you included - can read the object. " +
-						"Retrieve it with " + tool().command("object get " + object.getUri() + " --key <key>") + ".");
+						"Retrieve it with " + tool().command("ionstore get " + object.getUri() + " --key <key>") + ".");
 		}
 	}
 
@@ -176,7 +176,7 @@ public class ObjectCommand extends CliGroup {
 		boolean overwrite;
 
 		@Option(names = "--key", paramLabel = "<key>",
-				description = "The key of an encrypted object, as 'object put --encrypt' printed it.")
+				description = "The key of an encrypted object, as 'ionstore put --encrypt' printed it.")
 		String key;
 
 		@Option(names = "--raw", description = "Retrieve an encrypted object as it is stored, without decrypting it.")
@@ -257,7 +257,7 @@ public class ObjectCommand extends CliGroup {
 			if (e.getMessage() != null && e.getMessage().contains("not encrypted"))
 				return CliException.usage("Object " + reference + " is not encrypted.", "Leave out --key.");
 			return CliException.failed("Object " + reference + " cannot be decrypted with this key.",
-					"Check the key: it is the one 'object put --encrypt' printed.");
+					"Check the key: it is the one 'ionstore put --encrypt' printed.");
 		}
 
 		// The object's own name when the node knows it, and the object id otherwise; never a path.
@@ -290,7 +290,7 @@ public class ObjectCommand extends CliGroup {
 			IonStore store = context().ionStore();
 			PaginatedResult<IonObject> objects = page.fetch(this, store::list);
 			Listing.page(output(), objects, page, "objects", ServiceViews.OBJECT_HEADERS, ServiceViews::objectRow,
-					ServiceViews::objectJson, "You have no objects. Store one with " + tool().command("object put <file>") + ".");
+					ServiceViews::objectJson, "You have no objects. Store one with " + tool().command("ionstore put <file>") + ".");
 		}
 	}
 
@@ -353,7 +353,7 @@ public class ObjectCommand extends CliGroup {
 			if (!missing.isEmpty()) {
 				String ids = String.join(", ", missing.stream().map(Id::toBase58String).toList());
 				throw CliException.notFound("You have no " + (missing.size() == 1 ? "object " : "objects ") + ids + ".",
-						"List your objects with " + tool().command("object list") + ".");
+						"List your objects with " + tool().command("ionstore list") + ".");
 			}
 		}
 	}
@@ -381,7 +381,7 @@ public class ObjectCommand extends CliGroup {
 					}
 				}
 				throw CliException.usage("'" + text + "' is not an object address.",
-						"An address is ions://<peer-id>/<object-id>, as 'object put' prints it.");
+						"An address is ions://<peer-id>/<object-id>, as 'ionstore put' prints it.");
 			}
 
 			try {
@@ -403,7 +403,7 @@ public class ObjectCommand extends CliGroup {
 		void requireLocal(IonStore store, String what) {
 			if (!isLocal(store))
 				throw CliException.usage("Object " + text + " is on another node; only objects on your super node can be " +
-						what + ".", what.equals("shown") ? "Retrieve it with 'object get " + text + "'." : null);
+						what + ".", what.equals("shown") ? "Retrieve it with 'ionstore get " + text + "'." : null);
 		}
 	}
 
@@ -417,7 +417,7 @@ public class ObjectCommand extends CliGroup {
 		byte[] key = Keys.decode(text, "key");
 		if (key.length != SecretStream.KEY_BYTES)
 			throw CliException.usage("The key is " + key.length + " bytes, but an object key is " + SecretStream.KEY_BYTES + ".",
-					"Use the key 'object put --encrypt' printed.");
+					"Use the key 'ionstore put --encrypt' printed.");
 		return key;
 	}
 

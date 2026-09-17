@@ -48,8 +48,8 @@ are used as a device, so a user registered without one adds it later with
 through the Director.
 
 ```sh
-boson-cli object put photo.jpg                   # prints the object's ions:// address
-boson-cli object get ions://<peer-id>/<object-id>
+boson-cli ionstore put photo.jpg                  # prints the object's ions:// address
+boson-cli ionstore get ions://<peer-id>/<object-id>
 boson-cli dht store --key greeting.key --persistent "Hello"
 boson-cli proxy start --upstream localhost:8080   # until Ctrl+C
 ```
@@ -129,7 +129,7 @@ Every command follows `<tool> <group> <verb>`, with the same verbs throughout: `
 ```
 user register | show | update | avatar get | avatar set | passphrase set | passphrase change | passphrase clear
 device list | add | remove
-object put | get | list | show | remove
+ionstore put | get | list | show | remove
 dht id | find node | find value | find peer | store | announce
 dht value list | show | remove
 dht peer list | show | remove
@@ -140,7 +140,7 @@ identity create | import | show
 util keygen | check-key | public-key | sign | hex-to-base58 | base58-to-hex
 ```
 
-- `object` (alias `ion`) is the Ion Store. An object is named by its id on your super node, or by its
+- `ionstore` (alias `ion`) is the Ion Store. An object is named by its id on your super node, or by its
   `ions://<peer-id>/<object-id>` address on any node, which the node fetches for you. `put --encrypt`
   encrypts here with a new key that is printed, and `get --key` decrypts; `get` writes to a file named
   after the object unless `--output` names one (`-` for standard output), and needs no account.

@@ -159,7 +159,7 @@ public class BosonCliServiceTests {
 
 		// A user id that is not the user identity's is refused where it is used.
 		assertEquals(0, cli.run("config", "set", "userId", userId.toBase58String()).exitCode());
-		Result mismatch = cli.run("object", "list");
+		Result mismatch = cli.run("ionstore", "list");
 		assertEquals(3, mismatch.exitCode(), mismatch::toString);
 		assertTrue(mismatch.err().contains("is not the id of the user identity"), mismatch::toString);
 
@@ -174,7 +174,7 @@ public class BosonCliServiceTests {
 		CliRunner cli = cli(dir);
 		assertEquals(0, cli.run("--url", stub.url(), "config", "init").exitCode());
 
-		Result result = cli.run("object", "list");
+		Result result = cli.run("ionstore", "list");
 		assertEquals(3, result.exitCode(), result::toString);
 		assertTrue(result.err().contains("No user is configured"), result::toString);
 		assertTrue(result.err().contains("'boson-cli identity create'"), result::toString);
@@ -185,7 +185,7 @@ public class BosonCliServiceTests {
 	@Test
 	void aMissingDeviceIsExplained(@TempDir Path dir) {
 		CliRunner cli = user(dir);
-		for (String[] command : List.of(new String[] { "object", "list" }, new String[] { "dht", "value", "list" },
+		for (String[] command : List.of(new String[] { "ionstore", "list" }, new String[] { "dht", "value", "list" },
 				new String[] { "proxy", "start", "--upstream", "localhost:8080" })) {
 			Result result = cli.run(command);
 			assertEquals(3, result.exitCode(), () -> String.join(" ", command) + ": " + result);
@@ -231,7 +231,7 @@ public class BosonCliServiceTests {
 		assertEquals(0, cli.run("util", "keygen", "--output", clientDir(dir).resolve("device.identity").toString()).exitCode());
 		stub.reply("GET", ION + "/objects", 200, "{\"page\": 1, \"pageSize\": 20, \"totalItems\": 0, \"items\": []}");
 
-		Result list = cli.run("object", "list");
+		Result list = cli.run("ionstore", "list");
 		assertEquals(0, list.exitCode(), list::toString);
 		assertTrue(list.out().contains("You have no objects."), list::toString);
 
@@ -246,7 +246,7 @@ public class BosonCliServiceTests {
 		CliRunner cli = device(dir);
 		stub.nodeStatus(nodeId);
 
-		Result result = cli.run("object", "list");
+		Result result = cli.run("ionstore", "list");
 		assertEquals(1, result.exitCode(), result::toString);
 		assertTrue(result.err().contains("does not offer the Ion Store service"), result::toString);
 		assertTrue(result.err().contains("'boson-cli node status'"), result::toString);
@@ -261,7 +261,7 @@ public class BosonCliServiceTests {
 		CliRunner cli = device(dir);
 		stub.nodeStatus(nodeId, NodeStatus.Service.ION_STORE, ionStorePeerId.toBase58String(), "http://127.0.0.1:1/ion");
 
-		Result result = cli.run("object", "list");
+		Result result = cli.run("ionstore", "list");
 		assertEquals(7, result.exitCode(), result::toString);
 		assertTrue(result.err().contains("Cannot connect to the Ion Store at http://127.0.0.1:1/ion"), result::toString);
 		assertFalse(result.err().contains("Exception"), result::toString);
@@ -278,25 +278,25 @@ public class BosonCliServiceTests {
 				objectJson(objectId, ionStorePeerId, content, "hello.txt") + "]}");
 		stub.reply("GET", ION + "/objects/" + objectId, 200, objectJson(objectId, ionStorePeerId, content, "hello.txt"));
 
-		Result list = cli.run("object", "list");
+		Result list = cli.run("ionstore", "list");
 		assertEquals(0, list.exitCode(), list::toString);
 		assertTrue(list.out().contains("OBJECT ID"), list::toString);
 		assertTrue(list.out().contains(objectId.toBase58String()), list::toString);
 		assertTrue(list.out().contains("hello.txt"), list::toString);
 
-		Result json = cli.run("--json", "object", "list");
+		Result json = cli.run("--json", "ionstore", "list");
 		assertEquals(0, json.exitCode(), json::toString);
 		assertEquals(1, ((List<?>) json.json().get("items")).size());
 
-		Result show = cli.run("object", "show", "ions://" + ionStorePeerId + "/" + objectId);
+		Result show = cli.run("ionstore", "show", "ions://" + ionStorePeerId + "/" + objectId);
 		assertEquals(0, show.exitCode(), show::toString);
 		assertTrue(show.out().contains("hello.txt"), show::toString);
 
-		Result remote = cli.run("object", "show", "ions://" + Id.random() + "/" + objectId);
+		Result remote = cli.run("ionstore", "show", "ions://" + Id.random() + "/" + objectId);
 		assertEquals(2, remote.exitCode(), remote::toString);
 		assertTrue(remote.err().contains("on another node"), remote::toString);
 
-		Result bad = cli.run("object", "show", "ions://x/y");
+		Result bad = cli.run("ionstore", "show", "ions://x/y");
 		assertEquals(2, bad.exitCode(), bad::toString);
 		assertTrue(bad.err().contains("not an object address"), bad::toString);
 	}
@@ -316,27 +316,27 @@ public class BosonCliServiceTests {
 
 		// Named after the object, in the working directory: here, --output names the file instead.
 		Path file = dir.resolve("note.txt");
-		Result saved = cli.run("object", "get", objectId.toBase58String(), "--output", file.toString());
+		Result saved = cli.run("ionstore", "get", objectId.toBase58String(), "--output", file.toString());
 		assertEquals(0, saved.exitCode(), saved::toString);
 		assertArrayEquals(content, Files.readAllBytes(file));
 		assertTrue(saved.out().contains("Saved object " + objectId), saved::toString);
 
-		Result again = cli.run("object", "get", objectId.toBase58String(), "--output", file.toString());
+		Result again = cli.run("ionstore", "get", objectId.toBase58String(), "--output", file.toString());
 		assertEquals(1, again.exitCode(), again::toString);
 		assertTrue(again.err().contains("--overwrite"), again::toString);
 		assertTrue(Files.list(dir).noneMatch(p -> p.getFileName().toString().endsWith(".part")));
 
-		Result stdout = cli.run("object", "get", "ions://" + otherPeer + "/" + objectId, "-o", "-");
+		Result stdout = cli.run("ionstore", "get", "ions://" + otherPeer + "/" + objectId, "-o", "-");
 		assertEquals(0, stdout.exitCode(), stdout::toString);
 		assertArrayEquals(content, stdout.outBytes());
 		assertEquals(1, stub.requests("GET", ION + "/objects/" + otherPeer + "/" + objectId).size());
 
-		Result missing = cli.run("object", "get", Id.random().toBase58String(), "-o", dir.resolve("x").toString());
+		Result missing = cli.run("ionstore", "get", Id.random().toBase58String(), "-o", dir.resolve("x").toString());
 		assertEquals(4, missing.exitCode(), missing::toString);
 		assertTrue(missing.err().contains("ions://<peer-id>/<object-id>"), missing::toString);
 		assertFalse(Files.exists(dir.resolve("x")));
 
-		Result key = cli.run("object", "get", objectId.toBase58String(), "-o", "-", "--key", "0x0102");
+		Result key = cli.run("ionstore", "get", objectId.toBase58String(), "-o", "-", "--key", "0x0102");
 		assertEquals(2, key.exitCode(), key::toString);
 	}
 
@@ -352,25 +352,25 @@ public class BosonCliServiceTests {
 
 		Path file = dir.resolve("data.bin");
 		Files.write(file, new byte[] { 1, 2, 3 });
-		Result put = cli.run("object", "put", file.toString(), "--ttl", "7d", "--meta", "owner=alice");
+		Result put = cli.run("ionstore", "put", file.toString(), "--ttl", "7d", "--meta", "owner=alice");
 		assertEquals(0, put.exitCode(), put::toString);
 		assertTrue(put.out().contains("as object " + objectId), put::toString);
 		assertTrue(put.out().contains("ions://" + ionStorePeerId + "/" + objectId), put::toString);
 		StubDirector.Request request = stub.requests("POST", ION + "/objects").get(0);
 		assertArrayEquals(new byte[] { 1, 2, 3 }, request.bytes());
 
-		Result encrypted = cli.run("--json", "object", "put", file.toString(), "--encrypt");
+		Result encrypted = cli.run("--json", "ionstore", "put", file.toString(), "--encrypt");
 		assertEquals(0, encrypted.exitCode(), encrypted::toString);
 		assertNotNull(encrypted.json().get("key"));
 		assertFalse(Arrays.equals(new byte[] { 1, 2, 3 }, stub.requests("POST", ION + "/objects").get(1).bytes()));
 
-		Result stdin = cli.runWithInput("from standard input", "object", "put", "-", "--name", "note.txt");
+		Result stdin = cli.runWithInput("from standard input", "ionstore", "put", "-", "--name", "note.txt");
 		assertEquals(0, stdin.exitCode(), stdin::toString);
 		assertEquals("from standard input", stub.requests("POST", ION + "/objects").get(2).body());
 
-		Result ttl = cli.run("object", "put", file.toString(), "--ttl", "soon");
+		Result ttl = cli.run("ionstore", "put", file.toString(), "--ttl", "soon");
 		assertEquals(2, ttl.exitCode(), ttl::toString);
-		Result missing = cli.run("object", "put", dir.resolve("none").toString());
+		Result missing = cli.run("ionstore", "put", dir.resolve("none").toString());
 		assertEquals(2, missing.exitCode(), missing::toString);
 	}
 
@@ -382,11 +382,11 @@ public class BosonCliServiceTests {
 		stub.handle("DELETE", ION + "/objects/" + objectId, request -> new Reply(204, new byte[0], Map.of()));
 		stub.handle("DELETE", ION + "/objects/" + missingId, request -> new Reply(404, new byte[0], Map.of()));
 
-		Result unconfirmed = cli.run("object", "remove", objectId.toBase58String());
+		Result unconfirmed = cli.run("ionstore", "remove", objectId.toBase58String());
 		assertEquals(2, unconfirmed.exitCode(), unconfirmed::toString);
 		assertTrue(stub.requests("DELETE", ION + "/objects/" + objectId).isEmpty());
 
-		Result removed = cli.run("object", "delete", objectId.toBase58String(), missingId.toBase58String(), "--yes");
+		Result removed = cli.run("ionstore", "delete", objectId.toBase58String(), missingId.toBase58String(), "--yes");
 		assertEquals(4, removed.exitCode(), removed::toString);
 		assertTrue(removed.out().contains("Removed object " + objectId), removed::toString);
 		assertTrue(removed.err().contains("You have no object " + missingId), removed::toString);
@@ -398,7 +398,7 @@ public class BosonCliServiceTests {
 		stub.reply("GET", ION + "/objects", 401, "{\"type\": \"UNAUTHORIZED\", \"code\": 11, \"message\": \"Unknown device\"}");
 		stub.reply("GET", GATEWAY + "/user/values", 401, "Unauthorized");
 
-		for (String[] command : List.of(new String[] { "object", "list" }, new String[] { "dht", "value", "list" })) {
+		for (String[] command : List.of(new String[] { "ionstore", "list" }, new String[] { "dht", "value", "list" })) {
 			Result result = cli.run(command);
 			assertEquals(5, result.exitCode(), () -> String.join(" ", command) + ": " + result);
 			assertTrue(result.err().contains("did not accept this device"), result::toString);

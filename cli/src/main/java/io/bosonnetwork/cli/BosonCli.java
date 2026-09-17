@@ -32,7 +32,7 @@ import picocli.CommandLine.Mixin;
 import io.bosonnetwork.cli.commands.DeviceCommand;
 import io.bosonnetwork.cli.commands.DhtCommand;
 import io.bosonnetwork.cli.commands.NodeCommand;
-import io.bosonnetwork.cli.commands.ObjectCommand;
+import io.bosonnetwork.cli.commands.IonStoreCommand;
 import io.bosonnetwork.cli.commands.ProxyCommand;
 import io.bosonnetwork.cli.commands.UserCommand;
 import io.bosonnetwork.cli.commands.UtilCommand;
@@ -65,9 +65,9 @@ import io.bosonnetwork.cli.services.ServiceErrors;
 				"  boson-cli config init --url https://node.example.com:9000",
 				"  boson-cli identity create",
 				"  boson-cli user register --name Alice --device-name \"Alice's laptop\"",
-				"  boson-cli object put photo.jpg",
+				"  boson-cli ionstore put photo.jpg",
 				"  boson-cli proxy start --upstream localhost:8080"},
-		subcommands = {UserCommand.class, DeviceCommand.class, ObjectCommand.class, DhtCommand.class,
+		subcommands = {UserCommand.class, DeviceCommand.class, IonStoreCommand.class, DhtCommand.class,
 				ProxyCommand.class, NodeCommand.class, ConfigCommand.class, IdentityCommand.class, UtilCommand.class,
 				HelpCommand.class})
 public class BosonCli extends DirectorApp {

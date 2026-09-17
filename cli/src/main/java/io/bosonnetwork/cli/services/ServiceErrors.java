@@ -107,8 +107,8 @@ public class ServiceErrors implements ErrorTranslator {
 					"Your plan may not include storage; " + context.tool().command("user show") + " names it.");
 		if (e instanceof QuotaExceededException)
 			return CliException.failed("Your storage quota is used up" + suffix(detail),
-					"Remove objects you no longer need: " + context.tool().command("object list") + ", then " +
-							context.tool().command("object remove <id>") + ".");
+					"Remove objects you no longer need: " + context.tool().command("ionstore list") + ", then " +
+							context.tool().command("ionstore remove <id>") + ".");
 		if (e instanceof ObjectTooLargeException)
 			return CliException.failed("The object is larger than the node accepts" + suffix(detail), null);
 		if (e instanceof ObjectNotFoundException)
