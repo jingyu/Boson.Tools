@@ -22,6 +22,7 @@
 
 package io.bosonnetwork.cli.director;
 
+import java.io.IOException;
 import java.net.ConnectException;
 import java.net.URL;
 import java.net.UnknownHostException;
@@ -143,6 +144,19 @@ public final class ConnectionFailures {
 
 		return new CliException(ExitCode.UNAVAILABLE, "Cannot reach the " + name + where + ": " + reason,
 				"Run the command again with --verbose for the details.");
+	}
+
+	/**
+	 * Tells whether a failure is the transport's - no connection, no answer, a broken TLS session -
+	 * rather than something that went wrong on this side of it.
+	 *
+	 * @param error the failure
+	 * @return {@code true} for a transport failure
+	 */
+	public static boolean isTransport(Throwable error) {
+		String chain = Causes.messages(error);
+		return Causes.hasCause(error, IOException.class) || isTimeout(error, chain) || isPlainHttp(error, chain) ||
+				Causes.hasCause(error, "ConnectTimeoutException") || chain.contains("connection");
 	}
 
 	private static boolean isPlainHttp(Throwable error, String chain) {

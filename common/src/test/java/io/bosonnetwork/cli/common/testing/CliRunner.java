@@ -41,8 +41,8 @@ import io.bosonnetwork.cli.common.CliEnvironment;
 import io.bosonnetwork.json.Json;
 
 /**
- * Runs a tool in the test's own process, with no terminal, a configuration directory of its own, and
- * standard input, output and error captured.
+ * Runs a tool in the test's own process, with no terminal, configuration and state directories of its
+ * own, and standard input, output and error captured.
  */
 public final class CliRunner {
 	/**
@@ -94,7 +94,8 @@ public final class CliRunner {
 	 * Creates a runner.
 	 *
 	 * @param factory   creates the tool
-	 * @param configDir the directory standing for the user's configuration directory
+	 * @param configDir the directory standing for the user's configuration directory; the user's state
+	 *                  directory is {@code state} in it
 	 */
 	public CliRunner(Function<CliEnvironment, CliApp> factory, Path configDir) {
 		this.factory = factory;
@@ -134,7 +135,7 @@ public final class CliRunner {
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
 		StringWriter err = new StringWriter();
 		PrintWriter text = new PrintWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8), true);
-		CliEnvironment environment = new CliEnvironment(variables, configDir,
+		CliEnvironment environment = new CliEnvironment(variables, configDir, configDir.resolve("state"),
 				new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8)), null,
 				text, new PrintWriter(err, true), out);
 

@@ -36,6 +36,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -46,16 +47,21 @@ import org.junit.jupiter.api.io.TempDir;
 
 import io.bosonnetwork.AnnounceResult;
 import io.bosonnetwork.Id;
+import io.bosonnetwork.NodeInfo;
+import io.bosonnetwork.PeerInfo;
 import io.bosonnetwork.Value;
 import io.bosonnetwork.cli.common.IdentityFile;
 import io.bosonnetwork.cli.common.testing.CliRunner;
 import io.bosonnetwork.cli.common.testing.CliRunner.Result;
 import io.bosonnetwork.cli.testing.StubDirector;
 import io.bosonnetwork.cli.testing.StubDirector.Reply;
+import io.bosonnetwork.crypto.CryptoIdentity;
 import io.bosonnetwork.crypto.Hash;
+import io.bosonnetwork.crypto.Random;
 import io.bosonnetwork.crypto.Signature;
 import io.bosonnetwork.director.client.NodeStatus;
 import io.bosonnetwork.json.Json;
+import io.bosonnetwork.utils.Base58;
 
 /**
  * Tests of the {@code boson-cli} commands that use the super node's services, run in process against a
@@ -69,7 +75,8 @@ public class BosonCliServiceTests {
 	private final Id nodeId = Id.random();
 	private final Id ionStorePeerId = Id.random();
 	private final Id gatewayPeerId = Id.random();
-	private final Id proxyPeerId = Id.random();
+	// The proxy client sets up encryption with its service peer, so this id has to be a real public key.
+	private final Id proxyPeerId = Id.of(Signature.KeyPair.random().publicKey().bytes());
 	private StubDirector stub;
 
 	@BeforeAll
@@ -535,5 +542,449 @@ public class BosonCliServiceTests {
 		Result overridden = cli.run("proxy", "start", "--upstream", "tcp://127.0.0.1:22", "--no-name-access");
 		assertEquals(1, overridden.exitCode(), overridden::toString);
 		assertTrue(overridden.err().contains("does not offer the Active Proxy service"), overridden::toString);
+	}
+
+	// ---- Account commands and this machine's device -----------------------------------------------
+
+	@Test
+	void registrationRegistersThisMachineAsTheFirstDevice(@TempDir Path dir) throws Exception {
+		CliRunner cli = user(dir);
+		// Tiny proof-of-work parameters, so that the test solves the challenge at once.
+		stub.reply("GET", "/api/v1/client/users/challenge", 200, "{\"challenge\": \"" + base64(Random.randomBytes(16)) +
+				"\", \"challengeSig\": \"" + base64(Random.randomBytes(64)) + "\", \"nonce\": \"" +
+				base64(Random.randomBytes(32)) + "\", \"n\": 48, \"k\": 3, \"effort\": 0}");
+		stub.reply("POST", "/api/v1/client/usersAndInitialDevice", 200, "{}");
+
+		Result registered = cli.run("user", "register", "--name", "Alice", "--device-name", "Laptop");
+		assertEquals(0, registered.exitCode(), registered::toString);
+		Path deviceFile = clientDir(dir).resolve("device.identity");
+		assertTrue(Files.exists(deviceFile));
+		assertTrue(registered.out().contains("as its first device"), registered::toString);
+		assertTrue(registered.out().contains("This machine now uses the node's services as this device."), registered::toString);
+
+		Map<String, Object> body = stub.requests("POST", "/api/v1/client/usersAndInitialDevice").get(0).json();
+		assertEquals(id(deviceFile).toBase58String(), body.get("deviceId"));
+		assertEquals("Laptop", body.get("deviceName"));
+		assertEquals("boson-cli", body.get("appName"));
+		assertEquals("Alice", body.get("userName"));
+	}
+
+	@Test
+	void registrationWithoutADeviceSaysHowToAddOne(@TempDir Path dir) {
+		CliRunner cli = user(dir);
+		stub.reply("GET", "/api/v1/client/users/challenge", 200, "{\"challenge\": \"" + base64(Random.randomBytes(16)) +
+				"\", \"challengeSig\": \"" + base64(Random.randomBytes(64)) + "\", \"nonce\": \"" +
+				base64(Random.randomBytes(32)) + "\", \"n\": 48, \"k\": 3, \"effort\": 0}");
+		stub.reply("POST", "/api/v1/client/users", 200, "{}");
+
+		Result registered = cli.run("user", "register");
+		assertEquals(0, registered.exitCode(), registered::toString);
+		assertTrue(registered.out().contains("'boson-cli device add --name <name>'"), registered::toString);
+		assertFalse(Files.exists(clientDir(dir).resolve("device.identity")));
+	}
+
+	@Test
+	void removingThisMachinesDeviceIsPointedOut(@TempDir Path dir) {
+		CliRunner cli = device(dir);
+		Id deviceId = id(clientDir(dir).resolve("device.identity"));
+		Id otherId = Id.random();
+		stub.reply("POST", "/api/v1/client/devices/" + deviceId + "/remove", 200, "");
+		stub.reply("POST", "/api/v1/client/devices/" + otherId + "/remove", 200, "");
+
+		Result other = cli.run("device", "remove", otherId.toBase58String(), "--yes");
+		assertEquals(0, other.exitCode(), other::toString);
+		assertFalse(other.out().contains("That was this machine's device"), other::toString);
+
+		Result mine = cli.run("device", "remove", deviceId.toBase58String(), "--yes");
+		assertEquals(0, mine.exitCode(), mine::toString);
+		assertTrue(mine.out().contains("That was this machine's device"), mine::toString);
+	}
+
+	// ---- More of the Ion Store -----------------------------------------------------------------
+
+	@Test
+	void aRetrievedObjectIsNamedAfterItself(@TempDir Path dir) throws Exception {
+		CliRunner cli = cli(dir);
+		assertEquals(0, cli.run("--url", stub.url(), "config", "init").exitCode());
+		Id objectId = Id.random();
+		byte[] content = "named".getBytes(StandardCharsets.UTF_8);
+		String name = "boson-cli-test-" + objectId + ".txt";
+		// One path serves the metadata, asked for as JSON, and the content.
+		stub.handle("GET", ION + "/objects/" + objectId, request -> "application/json".equals(request.header("Accept")) ?
+				Reply.json(200, objectJson(objectId, ionStorePeerId, content, name)) :
+				new Reply(200, content, Map.of("Ion-Content-Id", Id.of(Hash.sha256(content)).toBase58String())));
+
+		// The working directory is the test's own, so the file is removed whatever happens.
+		Path local = Path.of(name);
+		Path remote = Path.of(objectId.toBase58String());
+		try {
+			Result named = cli.run("ionstore", "get", objectId.toBase58String());
+			assertEquals(0, named.exitCode(), named::toString);
+			assertArrayEquals(content, Files.readAllBytes(local));
+
+			// An object on another node has no metadata to ask for: it is named by its id.
+			Id otherPeer = Id.random();
+			stub.handle("GET", ION + "/objects/" + otherPeer + "/" + objectId, request ->
+					new Reply(200, content, Map.of("Ion-Content-Id", Id.of(Hash.sha256(content)).toBase58String())));
+			Result byId = cli.run("ionstore", "get", "ions://" + otherPeer + "/" + objectId);
+			assertEquals(0, byId.exitCode(), byId::toString);
+			assertArrayEquals(content, Files.readAllBytes(remote));
+		} finally {
+			Files.deleteIfExists(local);
+			Files.deleteIfExists(remote);
+		}
+	}
+
+	@Test
+	void anEncryptedObjectIsReadWithItsKeyOnly(@TempDir Path dir) throws Exception {
+		CliRunner cli = device(dir);
+		Id objectId = Id.random();
+		byte[] plain = "a secret".getBytes(StandardCharsets.UTF_8);
+		stub.handle("POST", ION + "/objects", request -> Reply.json(201,
+				"{\"id\": \"" + objectId + "\", \"contentId\": \"" + Id.of(Hash.sha256(request.bytes())) +
+						"\", \"size\": " + request.bytes().length + ", \"encrypted\": true, \"expireAt\": 0, " +
+						"\"uri\": \"ions://" + ionStorePeerId + "/" + objectId + "\"}"));
+
+		Path file = dir.resolve("secret.txt");
+		Files.write(file, plain);
+		Result put = cli.run("--json", "ionstore", "put", file.toString(), "--encrypt");
+		assertEquals(0, put.exitCode(), put::toString);
+		String key = (String) put.json().get("key");
+
+		// The service keeps the ciphertext and its descriptor, and serves them back.
+		StubDirector.Request stored = stub.requests("POST", ION + "/objects").get(0);
+		byte[] cipher = stored.bytes();
+		assertFalse(Arrays.equals(plain, cipher));
+		stub.handle("GET", ION + "/objects/" + objectId, request -> new Reply(200, cipher, Map.of(
+				"Ion-Content-Id", Id.of(Hash.sha256(cipher)).toBase58String(),
+				"Ion-Encrypted", "true",
+				"Ion-Encryption", stored.header("Ion-Encryption"))));
+
+		Result decrypted = cli.run("ionstore", "get", objectId.toBase58String(), "-o", "-", "--key", key);
+		assertEquals(0, decrypted.exitCode(), decrypted::toString);
+		assertArrayEquals(plain, decrypted.outBytes());
+
+		Result raw = cli.run("ionstore", "get", objectId.toBase58String(), "-o", "-", "--raw");
+		assertEquals(0, raw.exitCode(), raw::toString);
+		assertArrayEquals(cipher, raw.outBytes());
+
+		Result noKey = cli.run("ionstore", "get", objectId.toBase58String(), "-o", dir.resolve("x").toString());
+		assertEquals(1, noKey.exitCode(), noKey::toString);
+		assertTrue(noKey.err().contains("is encrypted"), noKey::toString);
+		assertTrue(noKey.err().contains("--key <key>"), noKey::toString);
+		assertFalse(Files.exists(dir.resolve("x")));
+
+		Result wrongKey = cli.run("ionstore", "get", objectId.toBase58String(), "-o", dir.resolve("y").toString(),
+				"--key", Base58.encode(Random.randomBytes(32)));
+		assertEquals(1, wrongKey.exitCode(), wrongKey::toString);
+		assertTrue(wrongKey.err().contains("cannot be decrypted with this key"), wrongKey::toString);
+		assertFalse(Files.exists(dir.resolve("y")));
+
+		Result both = cli.run("ionstore", "get", objectId.toBase58String(), "-o", "-", "--raw", "--key", key);
+		assertEquals(2, both.exitCode(), both::toString);
+
+		// A key for an object that is not encrypted is refused too.
+		byte[] open = "open".getBytes(StandardCharsets.UTF_8);
+		stub.handle("GET", ION + "/objects/" + objectId, request ->
+				new Reply(200, open, Map.of("Ion-Content-Id", Id.of(Hash.sha256(open)).toBase58String())));
+		Result notEncrypted = cli.run("ionstore", "get", objectId.toBase58String(), "-o", "-", "--key", key);
+		assertEquals(2, notEncrypted.exitCode(), notEncrypted::toString);
+		assertTrue(notEncrypted.err().contains("is not encrypted"), notEncrypted::toString);
+	}
+
+	@Test
+	void everyObjectIsListedPageByPage(@TempDir Path dir) {
+		CliRunner cli = device(dir);
+		Id first = Id.random();
+		Id second = Id.random();
+		byte[] content = "x".getBytes(StandardCharsets.UTF_8);
+		stub.handle("GET", ION + "/objects", request -> {
+			boolean one = request.query().contains("page=1&");
+			return Reply.json(200, "{\"page\": " + (one ? 1 : 2) + ", \"pageSize\": 1, \"totalItems\": 2, \"items\": [" +
+					objectJson(one ? first : second, ionStorePeerId, content, one ? "first" : "second") + "]}");
+		});
+
+		Result all = cli.run("ionstore", "list", "--all");
+		assertEquals(0, all.exitCode(), all::toString);
+		assertTrue(all.out().contains(first.toBase58String()) && all.out().contains(second.toBase58String()), all::toString);
+		assertEquals(2, stub.requests("GET", ION + "/objects").size());
+
+		Result page = cli.run("ionstore", "list", "--page", "2", "--page-size", "1");
+		assertEquals(0, page.exitCode(), page::toString);
+		assertTrue(page.out().contains(second.toBase58String()), page::toString);
+		assertTrue(page.out().contains("Page 2 of 2, 2 objects in all."), page::toString);
+
+		Result mixed = cli.run("ionstore", "list", "--all", "--page", "2");
+		assertEquals(2, mixed.exitCode(), mixed::toString);
+	}
+
+	// ---- Finding on the DHT --------------------------------------------------------------------
+
+	@Test
+	void nodesAreFound(@TempDir Path dir) {
+		CliRunner cli = device(dir);
+		Id found = Id.random();
+		stub.reply("GET", GATEWAY + "/nodes/" + found, 200, Json.toString(NodeInfo.of(found, "192.0.2.7", 39001)));
+
+		Result node = cli.run("dht", "find", "node", found.toBase58String(), "--mode", "arbitrary");
+		assertEquals(0, node.exitCode(), node::toString);
+		assertTrue(node.out().contains("192.0.2.7:39001"), node::toString);
+		assertEquals("mode=arbitrary", stub.requests("GET", GATEWAY + "/nodes/" + found).get(0).query());
+
+		Result json = cli.run("--json", "dht", "find", "node", found.toBase58String());
+		assertEquals(0, json.exitCode(), json::toString);
+		assertEquals(List.of("192.0.2.7:39001"), json.json().get("addresses"));
+
+		Result missing = cli.run("dht", "find", "node", Id.random().toBase58String());
+		assertEquals(4, missing.exitCode(), missing::toString);
+
+		Result mode = cli.run("dht", "find", "node", found.toBase58String(), "--mode", "eventually");
+		assertEquals(2, mode.exitCode(), mode::toString);
+	}
+
+	@Test
+	void valuesAreFoundAndDecryptedForThisDevice(@TempDir Path dir) throws Exception {
+		CliRunner cli = device(dir);
+		Id deviceId = id(clientDir(dir).resolve("device.identity"));
+		Value plain = Value.signedBuilder().data("in the open").build();
+		Value secret = Value.encryptedBuilder().recipient(deviceId).data("for this device").build();
+		Value other = Value.encryptedBuilder().recipient(Id.of(Signature.KeyPair.random().publicKey().bytes()))
+				.data("for someone else").build();
+		for (Value value : List.of(plain, secret, other))
+			stub.reply("GET", GATEWAY + "/values/" + value.getId(), 200, Json.toString(value));
+
+		Result found = cli.run("dht", "find", "value", plain.getId().toBase58String(), "--sequence", "0",
+				"-o", dir.resolve("data").toString());
+		assertEquals(0, found.exitCode(), found::toString);
+		assertTrue(found.out().contains("in the open"), found::toString);
+		assertEquals("in the open", Files.readString(dir.resolve("data")));
+		assertTrue(stub.requests("GET", GATEWAY + "/values/" + plain.getId()).get(0).query().contains("seq=0"));
+
+		Result decrypted = cli.run("--json", "dht", "find", "value", secret.getId().toBase58String());
+		assertEquals(0, decrypted.exitCode(), decrypted::toString);
+		assertEquals("for this device", decrypted.json().get("decryptedText"));
+
+		Result sealed = cli.run("dht", "find", "value", other.getId().toBase58String());
+		assertEquals(0, sealed.exitCode(), sealed::toString);
+		assertTrue(sealed.out().contains("encrypted for the recipient"), sealed::toString);
+		assertFalse(sealed.out().contains("someone else"), sealed::toString);
+
+		Result exists = cli.run("dht", "find", "value", plain.getId().toBase58String(), "-o", dir.resolve("data").toString());
+		assertEquals(1, exists.exitCode(), exists::toString);
+
+		Result missing = cli.run("dht", "find", "value", Id.random().toBase58String());
+		assertEquals(4, missing.exitCode(), missing::toString);
+
+		Result sequence = cli.run("dht", "find", "value", plain.getId().toBase58String(), "--sequence", "-2");
+		assertEquals(2, sequence.exitCode(), sequence::toString);
+	}
+
+	@Test
+	void peersAreFound(@TempDir Path dir) {
+		CliRunner cli = device(dir);
+		Signature.KeyPair key = Signature.KeyPair.random();
+		PeerInfo first = PeerInfo.builder().key(key).endpoint("https://a.example.com").build();
+		PeerInfo second = PeerInfo.builder().key(key).fingerprint(2).endpoint("https://b.example.com").build();
+		Id peerId = first.getId();
+		stub.reply("GET", GATEWAY + "/peers/" + peerId, 200, "[" + Json.toString(first) + ", " + Json.toString(second) + "]");
+
+		Result found = cli.run("dht", "find", "peer", peerId.toBase58String(), "--count", "2");
+		assertEquals(0, found.exitCode(), found::toString);
+		assertTrue(found.out().contains("https://a.example.com") && found.out().contains("https://b.example.com"), found::toString);
+		assertTrue(stub.requests("GET", GATEWAY + "/peers/" + peerId).get(0).query().contains("count=2"));
+
+		Result json = cli.run("--json", "dht", "find", "peer", peerId.toBase58String());
+		assertEquals(0, json.exitCode(), json::toString);
+		assertEquals(2, json.jsonArray().size());
+
+		Result missing = cli.run("dht", "find", "peer", Id.random().toBase58String());
+		assertEquals(4, missing.exitCode(), missing::toString);
+
+		Result count = cli.run("dht", "find", "peer", peerId.toBase58String(), "--count", "0");
+		assertEquals(2, count.exitCode(), count::toString);
+	}
+
+	// ---- More of storing and announcing --------------------------------------------------------
+
+	@Test
+	void valuesAreStoredFromAFileAndForARecipient(@TempDir Path dir) throws Exception {
+		CliRunner cli = device(dir);
+		stub.reply("POST", GATEWAY + "/values", 201, Json.toString(AnnounceResult.of(List.of())));
+		Path data = dir.resolve("data.bin");
+		Files.write(data, new byte[] { 0, 1, 2 });
+
+		Result fromFile = cli.run("dht", "store", "--file", data.toString());
+		assertEquals(0, fromFile.exitCode(), fromFile::toString);
+		Value immutable = requestedValue(0);
+		assertArrayEquals(new byte[] { 0, 1, 2 }, immutable.getData());
+
+		Id recipient = Id.of(Signature.KeyPair.random().publicKey().bytes());
+		Path keyFile = dir.resolve("secret.key");
+		Result forRecipient = cli.run("dht", "store", "--key", keyFile.toString(), "--recipient",
+				recipient.toBase58String(), "only for you");
+		assertEquals(0, forRecipient.exitCode(), forRecipient::toString);
+		assertTrue(forRecipient.out().contains("Stored encrypted value " + id(keyFile)), forRecipient::toString);
+		Value encrypted = requestedValue(1);
+		assertTrue(encrypted.isEncrypted());
+		assertEquals(recipient, encrypted.getRecipient());
+		assertFalse(Arrays.equals("only for you".getBytes(StandardCharsets.UTF_8), encrypted.getData()));
+
+		// An update keeps the recipient without naming it again, and refuses another one.
+		stub.reply("GET", GATEWAY + "/user/values/" + id(keyFile), 200, Json.toString(encrypted));
+		Result update = cli.run("dht", "store", "--key", keyFile.toString(), "still only for you");
+		assertEquals(0, update.exitCode(), update::toString);
+		assertEquals(recipient, requestedValue(2).getRecipient());
+		assertEquals(1, requestedValue(2).getSequenceNumber());
+
+		Result another = cli.run("dht", "store", "--key", keyFile.toString(), "--recipient",
+				Id.of(Signature.KeyPair.random().publicKey().bytes()).toBase58String(), "x");
+		assertEquals(2, another.exitCode(), another::toString);
+		assertTrue(another.err().contains("keeps its recipient"), another::toString);
+
+		Result both = cli.run("dht", "store", "--file", data.toString(), "text");
+		assertEquals(2, both.exitCode(), both::toString);
+		Result neither = cli.run("dht", "store");
+		assertEquals(2, neither.exitCode(), neither::toString);
+		Result empty = cli.run("dht", "store", "");
+		assertEquals(2, empty.exitCode(), empty::toString);
+	}
+
+	private Value requestedValue(int index) {
+		Map<String, Object> body = stub.requests("POST", GATEWAY + "/values").get(index).json();
+		return Json.objectMapper().convertValue(body.get("value"), Value.class);
+	}
+
+	private PeerInfo requestedPeer(int index) {
+		Map<String, Object> body = stub.requests("POST", GATEWAY + "/peers").get(index).json();
+		return Json.objectMapper().convertValue(body.get("peer"), PeerInfo.class);
+	}
+
+	@Test
+	void peersAreUpdatedSignedAndKept(@TempDir Path dir) throws Exception {
+		CliRunner cli = device(dir);
+		stub.reply("POST", GATEWAY + "/peers", 201, Json.toString(AnnounceResult.of(List.of())));
+		Signature.KeyPair deviceKey = IdentityFile.read(clientDir(dir).resolve("device.identity"), "key");
+		Id deviceId = Id.of(deviceKey.publicKey().bytes());
+
+		// The gateway keeps sequence 0 of this fingerprint; announcing again makes sequence 1.
+		PeerInfo kept = PeerInfo.builder().key(deviceKey).fingerprint(7).endpoint("https://old.example.com").build();
+		stub.reply("GET", GATEWAY + "/user/peers/" + deviceId + "/7", 200, Json.toString(kept));
+		Result updated = cli.run("dht", "announce", "https://new.example.com", "--fingerprint", "7", "--persistent",
+				"--authenticated");
+		assertEquals(0, updated.exitCode(), updated::toString);
+		assertTrue(updated.out().contains("fingerprint 7"), updated::toString);
+		assertTrue(updated.out().contains("'boson-cli dht peer remove " + deviceId + " --fingerprint 7'"), updated::toString);
+		Map<String, Object> body = stub.requests("POST", GATEWAY + "/peers").get(0).json();
+		assertEquals(true, body.get("persistent"));
+		assertEquals(0, body.get("expectedSequenceNumber"));
+		PeerInfo peer = requestedPeer(0);
+		assertEquals(1, peer.getSequenceNumber());
+		assertEquals(7, peer.getFingerprint());
+		assertEquals(deviceId, peer.getNodeId());
+		assertTrue(peer.isValid());
+
+		// Once signed by this device, an update stays signed without being asked.
+		stub.reply("GET", GATEWAY + "/user/peers/" + deviceId + "/7", 200, Json.toString(peer));
+		assertEquals(0, cli.run("dht", "announce", "https://newer.example.com", "--fingerprint", "7").exitCode());
+		assertEquals(deviceId, requestedPeer(1).getNodeId());
+
+		// A peer another node signed cannot be updated from here.
+		Signature.KeyPair peerKey = Signature.KeyPair.random();
+		Path keyFile = dir.resolve("web.key");
+		IdentityFile.create(keyFile, peerKey);
+		PeerInfo signedElsewhere = PeerInfo.builder().key(peerKey).endpoint("https://web.example.com")
+				.node(new CryptoIdentity(Signature.KeyPair.random())).build();
+		stub.reply("GET", GATEWAY + "/user/peers/" + signedElsewhere.getId() + "/0", 200, Json.toString(signedElsewhere));
+		Result refused = cli.run("dht", "announce", "https://web.example.com", "--key", keyFile.toString());
+		assertEquals(2, refused.exitCode(), refused::toString);
+		assertTrue(refused.err().contains("which this device is not"), refused::toString);
+
+		// A new key file is created, and names the peer.
+		Path newKey = dir.resolve("new.key");
+		Result created = cli.run("dht", "announce", "https://example.org", "--key", newKey.toString());
+		assertEquals(0, created.exitCode(), created::toString);
+		assertEquals(id(newKey), requestedPeer(2).getId());
+		assertEquals(0, requestedPeer(2).getSequenceNumber());
+		assertTrue(created.out().contains("Its key is in " + newKey), created::toString);
+	}
+
+	// ---- What the gateway keeps ----------------------------------------------------------------
+
+	@Test
+	void keptValuesAndPeersAreShown(@TempDir Path dir) {
+		CliRunner cli = device(dir);
+		Id deviceId = id(clientDir(dir).resolve("device.identity"));
+		Value value = Value.encryptedBuilder().recipient(deviceId).data("kept for this device").build();
+		Signature.KeyPair key = Signature.KeyPair.random();
+		PeerInfo first = PeerInfo.builder().key(key).endpoint("https://a.example.com").build();
+		PeerInfo second = PeerInfo.builder().key(key).fingerprint(3).endpoint("https://b.example.com")
+				.extra(Map.of("name", "web")).build();
+		Id peerId = first.getId();
+		stub.reply("GET", GATEWAY + "/user/values/" + value.getId(), 200, Json.toString(value));
+		stub.reply("GET", GATEWAY + "/user/peers/" + peerId, 200, "[" + Json.toString(first) + ", " + Json.toString(second) + "]");
+		stub.reply("GET", GATEWAY + "/user/peers/" + peerId + "/3", 200, Json.toString(second));
+		stub.handle("DELETE", GATEWAY + "/user/peers/" + peerId + "/3", request -> new Reply(204, new byte[0], Map.of()));
+
+		Result shown = cli.run("dht", "value", "show", value.getId().toBase58String());
+		assertEquals(0, shown.exitCode(), shown::toString);
+		assertTrue(shown.out().contains("kept for this device"), shown::toString);
+
+		Result notKept = cli.run("dht", "value", "show", Id.random().toBase58String());
+		assertEquals(4, notKept.exitCode(), notKept::toString);
+		assertTrue(notKept.err().contains("'boson-cli dht value list'"), notKept::toString);
+
+		Result peers = cli.run("dht", "peer", "show", peerId.toBase58String());
+		assertEquals(0, peers.exitCode(), peers::toString);
+		assertTrue(peers.out().contains("https://a.example.com") && peers.out().contains("https://b.example.com"), peers::toString);
+		assertTrue(peers.out().contains("name=web"), peers::toString);
+
+		Result one = cli.run("--json", "dht", "peer", "show", peerId.toBase58String(), "--fingerprint", "3");
+		assertEquals(0, one.exitCode(), one::toString);
+		assertEquals(1, one.jsonArray().size());
+
+		Result removed = cli.run("dht", "peer", "remove", peerId.toBase58String(), "--fingerprint", "3", "--yes");
+		assertEquals(0, removed.exitCode(), removed::toString);
+		assertTrue(removed.out().contains("(fingerprint 3)"), removed::toString);
+
+		Result unconfirmed = cli.run("dht", "value", "remove", value.getId().toBase58String());
+		assertEquals(2, unconfirmed.exitCode(), unconfirmed::toString);
+		assertTrue(stub.requests("DELETE", GATEWAY + "/user/values/" + value.getId()).isEmpty());
+	}
+
+	// ---- The running proxy ---------------------------------------------------------------------
+
+	@Test
+	void aRunningProxyHoldsItsDeviceAndStops(@TempDir Path dir) throws Exception {
+		CliRunner cli = device(dir);
+		// Nothing listens at the proxy's port, so the proxy starts and keeps trying to connect.
+		AtomicReference<Result> first = new AtomicReference<>();
+		Thread running = new Thread(() -> first.set(cli.run("proxy", "start", "--upstream", "localhost:8080")));
+		running.start();
+		try {
+			Path lock = dir.resolve("state").resolve("boson").resolve("client")
+					.resolve("active-proxy-" + id(clientDir(dir).resolve("device.identity")) + ".lock");
+			long deadline = System.currentTimeMillis() + 30_000;
+			while (!Files.exists(lock) && running.isAlive() && System.currentTimeMillis() < deadline)
+				Thread.sleep(50);
+			assertTrue(Files.exists(lock), () -> "the running proxy holds its lock: " + first.get());
+
+			Result second = cli.run("proxy", "start", "--upstream", "localhost:8080");
+			assertEquals(6, second.exitCode(), second::toString);
+			assertTrue(second.err().contains("A proxy is already running as device"), second::toString);
+		} finally {
+			// Interrupted, the command stops the proxy as Ctrl+C would, and returns.
+			running.interrupt();
+			running.join(60_000);
+		}
+
+		assertFalse(running.isAlive(), "the proxy stopped");
+		Result result = first.get();
+		assertEquals(0, result.exitCode(), result::toString);
+		assertTrue(result.err().contains("Exposing http://localhost:8080 through the Active Proxy at 127.0.0.1:1"), result::toString);
+		assertTrue(result.err().contains("Stopped."), result::toString);
+	}
+
+	private static String base64(byte[] bytes) {
+		return Json.BASE64_ENCODER.encodeToString(bytes);
 	}
 }

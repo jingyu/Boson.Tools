@@ -44,6 +44,7 @@ import io.bosonnetwork.utils.FileUtils;
 public class CliEnvironment {
 	private final Map<String, String> variables;
 	private final Path userConfigDir;
+	private final Path userStateDir;
 	private final InputStream binaryIn;
 	private final BufferedReader stdin;
 	private final Console console;
@@ -64,7 +65,7 @@ public class CliEnvironment {
 	 */
 	public CliEnvironment(Map<String, String> variables, Path userConfigDir, InputStream stdin, Console console,
 			PrintWriter out, PrintWriter err) {
-		this(variables, userConfigDir, stdin, console, out, err, new OutputStream() {
+		this(variables, userConfigDir, FileUtils.getUserStateDir(), stdin, console, out, err, new OutputStream() {
 			@Override
 			public void write(int b) {
 				out.write(b & 0xff);
@@ -87,6 +88,7 @@ public class CliEnvironment {
 	 *
 	 * @param variables     the environment variables
 	 * @param userConfigDir the user's configuration directory, such as {@code ~/.config}
+	 * @param userStateDir  the user's state directory, such as {@code ~/.local/state}
 	 * @param stdin         standard input
 	 * @param console       the terminal, or {@code null} when not attached to one
 	 * @param out           standard output
@@ -94,10 +96,11 @@ public class CliEnvironment {
 	 * @param binaryOut     standard output, for bytes; text written to {@code out} is flushed before
 	 *                      anything is written here
 	 */
-	public CliEnvironment(Map<String, String> variables, Path userConfigDir, InputStream stdin, Console console,
-			PrintWriter out, PrintWriter err, OutputStream binaryOut) {
+	public CliEnvironment(Map<String, String> variables, Path userConfigDir, Path userStateDir, InputStream stdin,
+			Console console, PrintWriter out, PrintWriter err, OutputStream binaryOut) {
 		this.variables = Map.copyOf(Objects.requireNonNull(variables, "variables"));
 		this.userConfigDir = Objects.requireNonNull(userConfigDir, "userConfigDir");
+		this.userStateDir = Objects.requireNonNull(userStateDir, "userStateDir");
 		this.binaryIn = Objects.requireNonNull(stdin, "stdin");
 		this.stdin = new BufferedReader(new InputStreamReader(binaryIn,
 				console != null ? console.charset() : Charset.defaultCharset()));
@@ -115,7 +118,7 @@ public class CliEnvironment {
 	public static CliEnvironment system() {
 		Console console = System.console();
 		Charset charset = console != null ? console.charset() : Charset.defaultCharset();
-		return new CliEnvironment(System.getenv(), FileUtils.getUserConfigDir(), System.in, console,
+		return new CliEnvironment(System.getenv(), FileUtils.getUserConfigDir(), FileUtils.getUserStateDir(), System.in, console,
 				new PrintWriter(new OutputStreamWriter(System.out, charset), true),
 				new PrintWriter(new OutputStreamWriter(System.err, charset), true),
 				System.out);
@@ -139,6 +142,16 @@ public class CliEnvironment {
 	 */
 	public Path userConfigDir() {
 		return userConfigDir;
+	}
+
+	/**
+	 * Returns the user's state directory, such as {@code ~/.local/state}: where a running tool keeps what
+	 * lasts only as long as it runs, such as a lock file.
+	 *
+	 * @return the directory
+	 */
+	public Path userStateDir() {
+		return userStateDir;
 	}
 
 	/**

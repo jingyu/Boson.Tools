@@ -22,6 +22,7 @@
 
 package io.bosonnetwork.cli.services;
 
+import io.bosonnetwork.cli.common.Causes;
 import io.bosonnetwork.cli.common.CliException;
 import io.bosonnetwork.cli.common.ErrorReporter;
 import io.bosonnetwork.cli.common.ErrorTranslator;
@@ -137,9 +138,9 @@ public class ServiceErrors implements ErrorTranslator {
 					"The super node's log has the details.");
 
 		if (e.getStatus() == IonStoreException.NO_HTTP_STATUS)
-			return e.getCause() != null ?
+			return e.getCause() != null && ConnectionFailures.isTransport(e) ?
 					ConnectionFailures.service(e, ION_STORE, context.serviceUrl(NodeStatus.Service.ION_STORE)) :
-					CliException.failed(ErrorReporter.sentence(e.getMessage()), null);
+					unexpected(ION_STORE, e);
 
 		return CliException.failed("The Ion Store refused the request (HTTP " + e.getStatus() + ")" + suffix(detail), null);
 	}
@@ -176,13 +177,23 @@ public class ServiceErrors implements ErrorTranslator {
 			return new CliException(ExitCode.UNAVAILABLE, "The web gateway failed to handle the request" + suffix(detail),
 					"The super node's log has the details.");
 
-		if (e.getStatus() == HiggsException.NO_HTTP_STATUS)
-			return e.getCause() != null ?
+		if (e.getStatus() == HiggsException.NO_HTTP_STATUS) {
+			if (e.getCause() == null)
+				return new CliException(ExitCode.UNAVAILABLE, "The web gateway is not the one the super node reports" +
+						suffix(detail), "Tell the node's operator.");
+			return ConnectionFailures.isTransport(e) ?
 					ConnectionFailures.service(e, WEB_GATEWAY, context.serviceUrl(NodeStatus.Service.WEB_GATEWAY)) :
-					new CliException(ExitCode.UNAVAILABLE, "The web gateway is not the one the super node reports" +
-							suffix(detail), "Tell the node's operator.");
+					unexpected(WEB_GATEWAY, e);
+		}
 
 		return CliException.failed("The web gateway refused the request (HTTP " + e.getStatus() + ")" + suffix(detail), null);
+	}
+
+	// A failure on this side of the connection, which the client could not classify.
+	private static CliException unexpected(String name, Exception e) {
+		return CliException.failed("The " + name + " request failed: " +
+				ErrorReporter.sentence(Causes.describe(Causes.rootCause(e))),
+				"Run the command again with --verbose for the details.");
 	}
 
 	// A service error message, unless it only restates the HTTP status or is a proxy's HTML page.

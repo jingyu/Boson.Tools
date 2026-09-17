@@ -52,7 +52,6 @@ import io.bosonnetwork.crypto.Signature;
 import io.bosonnetwork.director.client.NodeStatus;
 import io.bosonnetwork.higgs.HiggsNode;
 import io.bosonnetwork.utils.ApplicationLock;
-import io.bosonnetwork.utils.FileUtils;
 
 /**
  * The {@code proxy} commands of {@code boson-cli}: the Active Proxy client, which makes a service on
@@ -146,6 +145,9 @@ public class ProxyCommand extends CliGroup {
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
 			} finally {
+				// An interrupted command still stops the proxy, which waits: clear the flag for that, and set
+				// it again once done.
+				boolean interrupted = Thread.interrupted();
 				if (!stopping.get()) {
 					if (hook != null) {
 						try {
@@ -161,6 +163,8 @@ public class ProxyCommand extends CliGroup {
 				context().close();
 				lock.close();
 				finished.countDown();
+				if (interrupted)
+					Thread.currentThread().interrupt();
 			}
 		}
 
@@ -283,7 +287,7 @@ public class ProxyCommand extends CliGroup {
 
 		// One proxy per device: two would take turns tearing down each other's session on the super node.
 		private ApplicationLock lock(Id deviceId) {
-			Path file = FileUtils.getUserStateDir().resolve("boson").resolve("client")
+			Path file = context().environment().userStateDir().resolve("boson").resolve("client")
 					.resolve("active-proxy-" + deviceId + ".lock");
 			try {
 				Files.createDirectories(file.getParent());

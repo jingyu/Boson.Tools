@@ -25,6 +25,7 @@ package io.bosonnetwork.cli.testing;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -46,12 +47,23 @@ public final class StubDirector implements AutoCloseable {
 	/**
 	 * A request the stub received.
 	 *
-	 * @param method the method
-	 * @param path   the path
-	 * @param query  the query string, or {@code null}
-	 * @param bytes  the body
+	 * @param method  the method
+	 * @param path    the path
+	 * @param query   the query string, or {@code null}
+	 * @param headers the headers, with names in any case
+	 * @param bytes   the body
 	 */
-	public record Request(String method, String path, String query, byte[] bytes) {
+	public record Request(String method, String path, String query, Map<String, String> headers, byte[] bytes) {
+		/**
+		 * Returns a header.
+		 *
+		 * @param name the name, in any case
+		 * @return the value, or {@code null}
+		 */
+		public String header(String name) {
+			return headers.get(name);
+		}
+
 		/**
 		 * Returns the body as text.
 		 *
@@ -100,7 +112,9 @@ public final class StubDirector implements AutoCloseable {
 		this.vertx = vertx;
 		this.server = vertx.createHttpServer()
 				.requestHandler(req -> req.body().onSuccess(body -> {
-					Request request = new Request(req.method().name(), req.path(), req.query(), body.getBytes());
+					Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+					req.headers().forEach(header -> headers.put(header.getKey(), header.getValue()));
+					Request request = new Request(req.method().name(), req.path(), req.query(), headers, body.getBytes());
 					requests.add(request);
 					Function<Request, Reply> handler = replies.get(req.method().name() + " " + req.path());
 					if (handler == null) {
