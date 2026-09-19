@@ -31,18 +31,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
-import io.bosonnetwork.cli.director.DirectorCommand;
 import io.bosonnetwork.cli.common.CliException;
 import io.bosonnetwork.cli.common.CliGroup;
 import io.bosonnetwork.cli.common.ExitCode;
+import io.bosonnetwork.cli.director.DirectorCommand;
 import io.bosonnetwork.cli.director.Views;
-import io.bosonnetwork.crypto.Signature;
+import io.bosonnetwork.director.client.Avatar;
 import io.bosonnetwork.director.client.DirectorClient;
 import io.bosonnetwork.director.client.Profile;
 import io.bosonnetwork.director.client.ProfileUpdate;
@@ -216,11 +217,12 @@ public class UserCommand extends CliGroup {
 				if (!overwrite && Files.exists(file))
 					throw existing(file);
 
-				io.bosonnetwork.director.client.Avatar avatar = await(context().directorClient().getAvatar());
-				if (avatar == null)
+				Optional<Avatar> oa = await(context().directorClient().getAvatar());
+				if (oa.isEmpty())
 					throw CliException.notFound("You have no avatar.",
 							"Upload one with " + tool().command("user avatar set <file>") + ".");
 
+				Avatar avatar = oa.get();
 				try {
 					if (overwrite)
 						Files.write(file, avatar.getData());
