@@ -47,7 +47,7 @@ import io.bosonnetwork.json.Json;
  * off the class path, the same one {@code config init} and {@code setup} render.
  */
 class NodeConfigTemplateTests {
-	private static final String HOST_PLACEHOLDER = "PUBLIC_IPV4_ADDRESS";
+	private static final String HOST_PLACEHOLDER = "LOCAL_IPV4_ADDRESS";
 	private static final String KEY_PLACEHOLDER = "NODE_PRIVATE_KEY";
 	private static final String HOST = "203.0.113.5";
 	private static final String PRIVATE_KEY =

@@ -63,7 +63,7 @@ import io.bosonnetwork.utils.Base58;
 public class ConfigCommand extends CliGroup {
 	/** The template shipped with the tool, with a placeholder for each value only the operator has. */
 	static final String TEMPLATE_RESOURCE = "/node.yaml";
-	private static final String HOST_PLACEHOLDER = "PUBLIC_IPV4_ADDRESS";
+	private static final String HOST_PLACEHOLDER = "LOCAL_IPV4_ADDRESS";
 	private static final String KEY_PLACEHOLDER = "NODE_PRIVATE_KEY";
 
 	/** What to do about an address a node cannot use, or can use only in developer mode. */

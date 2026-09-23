@@ -64,7 +64,7 @@ public class SetupCommand extends CliCommand {
 
 	private static final String NODE_PUBLIC_KEY = "NODE_PUBLIC_KEY";
 	private static final String NODE_PRIVATE_KEY = "NODE_PRIVATE_KEY";
-	private static final String PUBLIC_IPV4_ADDRESS = "PUBLIC_IPV4_ADDRESS";
+	private static final String LOCAL_IPV4_ADDRESS = "LOCAL_IPV4_ADDRESS";
 	private static final String LOG_DIR = "LOG_DIR";
 	private static final String DATA_DIR = "DATA_DIR";
 
@@ -115,13 +115,16 @@ public class SetupCommand extends CliCommand {
 		Signature.KeyPair key = Signature.KeyPair.random();
 		Id nodeId = Id.of(key.publicKey().bytes());
 
+		// The address of this host's own interface on the default route, which is what the node can
+		// bind. On a host whose public address is mapped to it by the network - an elastic or floating
+		// address - that is the private address the public one maps to, never the public one itself.
 		InetAddress detected = AddressUtils.getDefaultRouteAddress(Inet4Address.class);
 		String address = detected != null ? detected.getHostAddress() : "127.0.0.1";
 
 		Map<String, String> values = new HashMap<>();
 		values.put(NODE_PUBLIC_KEY, nodeId.toBase58String());
 		values.put(NODE_PRIVATE_KEY, Base58.encode(key.privateKey().bytes()));
-		values.put(PUBLIC_IPV4_ADDRESS, address);
+		values.put(LOCAL_IPV4_ADDRESS, address);
 		values.put(LOG_DIR, logDir.toAbsolutePath().toString());
 		values.put(DATA_DIR, dataDir.toAbsolutePath().toString());
 

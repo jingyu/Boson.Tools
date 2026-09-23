@@ -19,14 +19,20 @@
 
 # IPv4 address to bind for DHT protocol communication.
 #
-# IMPORTANT: The node MUST be reachable from the public internet. 
-# Binding to 127.0.0.1 or private network addresses (unless in developer mode)
-# will prevent the node from participating in the global network.
+# This is an address of one of this host's own network interfaces: it is what the
+# node listens on, not necessarily what the Internet reaches it by. The two are
+# the same on a server with a directly assigned public address, and different on a
+# cloud server with an elastic or floating address - there the public address is
+# mapped to the machine by the provider's network, is on no local interface, and
+# binding it fails with "Cannot assign requested address".
+#
+# IMPORTANT: The node MUST be reachable from the public internet, whether directly
+# on this address or through such a mapping.
 #
 # Using 0.0.0.0 (wildcard) is generally discouraged as the node needs a 
 # deterministic external IP to advertise its presence to peers.
 # Only one of host4 or interface4 can be configured.
-host4: PUBLIC_IPV4_ADDRESS
+host4: LOCAL_IPV4_ADDRESS
 
 # Network interface to bind for IPv4 DHT protocol communication, instead of a
 # fixed host4 address. The node uses the first available unicast IPv4 address
