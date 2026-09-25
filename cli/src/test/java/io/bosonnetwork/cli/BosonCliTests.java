@@ -231,6 +231,8 @@ public class BosonCliTests {
 		Result result = cli(dir).run("user", "show");
 		assertEquals(3, result.exitCode(), result::toString);
 		assertTrue(result.err().contains("now called privateKey"), result::toString);
+		// Names the migration, pointed at this very file rather than the wizard's default path.
+		assertTrue(result.err().contains("boson.sh --setup --migrate --file " + configFile(dir)), result::toString);
 	}
 
 	@Test
