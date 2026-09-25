@@ -32,8 +32,10 @@ else
   # only by this package - the ones with a bundled runtime take the branch above.
   #
   # "java -version" prints openjdk version "17.0.20.1"; Java 8 prints "1.8.0_452", whose leading 1
-  # correctly compares as older than 17.
-  java_major=$("$JAVA" -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')
+  # correctly compares as older than 17. The version line is searched for rather than assumed to
+  # be the first: with JAVA_TOOL_OPTIONS or _JAVA_OPTIONS set, the JVM prints "Picked up ..." ahead
+  # of it.
+  java_major=$("$JAVA" -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n 1)
   if [ -z "$java_major" ]; then
     echo "Error: no Java runtime found." >&2
     echo "Hint: install Java 17 or later, or point JAVA_HOME at one." >&2

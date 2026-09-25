@@ -26,8 +26,17 @@ rem With no bundled runtime this is the portable package, so the Java found abov
 rem Check it: a too-old JVM otherwise fails with UnsupportedClassVersionError, which names a
 rem bytecode level rather than the thing to fix. Java 8 reports 1.8.0_x, whose leading 1 correctly
 rem compares as older than 17.
+rem
+rem The version goes through a file rather than through for /f ... in ('command'): that form runs the
+rem command with cmd /c, which strips the first and the last quote from a command line holding more
+rem than two - and a quoted java.exe followed by a quoted search term is exactly that. The version
+rem line is found by its second word rather than taken to be the first line, because with
+rem JAVA_TOOL_OPTIONS or _JAVA_OPTIONS set the JVM prints "Picked up ..." ahead of it.
 set "JAVA_VER="
-if not defined BUNDLED for /f "tokens=3" %%v in ('"%JAVA%" -version 2^>^&1 ^| findstr /i "version"') do if not defined JAVA_VER set "JAVA_VER=%%~v"
+set "JAVA_VER_FILE=%TEMP%\boson-java-version-%RANDOM%.txt"
+if not defined BUNDLED "%JAVA%" -version > "%JAVA_VER_FILE%" 2>&1
+if not defined BUNDLED for /f "usebackq tokens=1-3" %%a in ("%JAVA_VER_FILE%") do if not defined JAVA_VER if /i "%%b"=="version" set "JAVA_VER=%%~c"
+if not defined BUNDLED del "%JAVA_VER_FILE%" > nul 2>&1
 if not defined BUNDLED if not defined JAVA_VER echo Error: no Java runtime found. 1>&2
 if not defined BUNDLED if not defined JAVA_VER echo Hint: install Java 17 or later, or point JAVA_HOME at one. 1>&2
 if not defined BUNDLED if not defined JAVA_VER exit /b 1
