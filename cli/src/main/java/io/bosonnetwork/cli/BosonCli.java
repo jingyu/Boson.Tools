@@ -34,6 +34,7 @@ import io.bosonnetwork.cli.commands.DhtCommand;
 import io.bosonnetwork.cli.commands.NodeCommand;
 import io.bosonnetwork.cli.commands.IonStoreCommand;
 import io.bosonnetwork.cli.commands.ProxyCommand;
+import io.bosonnetwork.cli.commands.TurnCommand;
 import io.bosonnetwork.cli.commands.UserCommand;
 import io.bosonnetwork.cli.commands.UtilCommand;
 import io.bosonnetwork.cli.common.CliApp;
@@ -68,7 +69,7 @@ import io.bosonnetwork.cli.services.ServiceErrors;
 				"  boson-cli ionstore put photo.jpg",
 				"  boson-cli proxy start --upstream localhost:8080"},
 		subcommands = {UserCommand.class, DeviceCommand.class, IonStoreCommand.class, DhtCommand.class,
-				ProxyCommand.class, NodeCommand.class, ConfigCommand.class, IdentityCommand.class, UtilCommand.class,
+				ProxyCommand.class, TurnCommand.class, NodeCommand.class, ConfigCommand.class, IdentityCommand.class, UtilCommand.class,
 				HelpCommand.class})
 public class BosonCli extends DirectorApp {
 	@Mixin

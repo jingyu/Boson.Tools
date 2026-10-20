@@ -506,6 +506,32 @@ public final class CliContext implements Awaiter, AutoCloseable {
 		return node;
 	}
 
+	/**
+	 * A service of the super node reached over HTTP, with the URL its endpoint names.
+	 *
+	 * @param service the service
+	 * @param url     its http(s) URL
+	 */
+	public record HttpService(NodeStatus.Service service, URL url) {
+	}
+
+	/**
+	 * Finds an HTTP service of the super node, for a command that talks to it without a client
+	 * library of its own.
+	 *
+	 * @param serviceId the service id, such as {@link NodeStatus.Service#TURN}
+	 * @param name      what the service is called in messages, such as {@code "TURN"}
+	 * @return the service and its URL
+	 * @throws CliException if the node does not offer it, or its endpoint is not an http(s) URL
+	 * @throws Exception    if the Director cannot be asked
+	 */
+	public HttpService httpService(String serviceId, String name) throws Exception {
+		NodeStatus.Service service = service(serviceId, name);
+		URL url = httpUrl(service, name);
+		serviceUrls.put(serviceId, url);
+		return new HttpService(service, url);
+	}
+
 	private URL httpUrl(NodeStatus.Service service, String name) {
 		String endpoint = service.getEndpoint().orElseThrow();
 		try {

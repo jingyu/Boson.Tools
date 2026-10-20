@@ -951,6 +951,72 @@ public class BosonCliServiceTests {
 		assertTrue(stub.requests("DELETE", GATEWAY + "/user/values/" + value.getId()).isEmpty());
 	}
 
+	// ---- The TURN relay ------------------------------------------------------------------------
+
+	private static final String TURN_CREDENTIALS = "/turn/v1/credentials";
+	private final Id turnPeerId = Id.random();
+
+	private void offerTurn() {
+		stub.nodeStatus(nodeId, NodeStatus.Service.TURN, turnPeerId.toBase58String(), stub.url() + "/turn");
+	}
+
+	@Test
+	void turnCredentialsAreFetchedWithThisDevice(@TempDir Path dir) {
+		CliRunner cli = device(dir);
+		offerTurn();
+		stub.reply("GET", TURN_CREDENTIALS, 200, "{\"username\": \"1760943600:3qx0Yw5n2kQzS8b1Rr7LmA\", " +
+				"\"password\": \"kD2s0mJ9vF8=\", \"ttl\": 43200, \"uris\": [\"stun:turn.example.com:3478\", " +
+				"\"turn:turn.example.com:3478?transport=udp\"]}");
+
+		Result result = cli.run("turn", "credentials");
+		assertEquals(0, result.exitCode(), result::toString);
+		assertTrue(result.out().contains("1760943600:3qx0Yw5n2kQzS8b1Rr7LmA"), result::toString);
+		assertTrue(result.out().contains("kD2s0mJ9vF8="), result::toString);
+		assertTrue(result.out().contains("turn:turn.example.com:3478?transport=udp"), result::toString);
+
+		// one request, at the endpoint's path, carrying this device's own token
+		List<StubDirector.Request> requests = stub.requests("GET", TURN_CREDENTIALS);
+		assertEquals(1, requests.size());
+		String authorization = requests.get(0).header("Authorization");
+		assertNotNull(authorization);
+		assertTrue(authorization.startsWith("Bearer "), authorization);
+
+		Result json = cli.run("--json", "turn", "creds");
+		assertEquals(0, json.exitCode(), json::toString);
+		assertTrue(json.out().contains("\"ttl\""), json::toString);
+	}
+
+	@Test
+	void turnRefusalsAreExplained(@TempDir Path dir) {
+		CliRunner cli = device(dir);
+		offerTurn();
+
+		stub.reply("GET", TURN_CREDENTIALS, 403, "{\"code\": 403, \"message\": \"TURN relay is not included in your plan\"}");
+		Result refused = cli.run("turn", "credentials");
+		assertEquals(5, refused.exitCode(), refused::toString);
+		assertTrue(refused.err().contains("TURN relay is not included in your plan"), refused::toString);
+
+		stub.handle("GET", TURN_CREDENTIALS, request -> new Reply(429,
+				"{\"code\": 429, \"message\": \"Rate limit exceeded\"}".getBytes(StandardCharsets.UTF_8),
+				Map.of("Retry-After", "30", "Content-Type", "application/json")));
+		Result limited = cli.run("turn", "credentials");
+		assertEquals(7, limited.exitCode(), limited::toString);
+		assertTrue(limited.err().contains("Try again in 30 seconds"), limited::toString);
+
+		stub.reply("GET", TURN_CREDENTIALS, 503, "{\"code\": 503, \"message\": \"The TURN relay is not available\"}");
+		Result down = cli.run("turn", "credentials");
+		assertEquals(7, down.exitCode(), down::toString);
+		assertTrue(down.err().contains("not available"), down::toString);
+	}
+
+	@Test
+	void aNodeWithoutTurnIsNamed(@TempDir Path dir) {
+		CliRunner cli = device(dir);
+		Result result = cli.run("turn", "credentials");
+		assertTrue(result.exitCode() != 0, result::toString);
+		assertTrue(result.err().contains("does not offer the TURN service"), result::toString);
+	}
+
 	// ---- The running proxy ---------------------------------------------------------------------
 
 	@Test
