@@ -27,7 +27,7 @@ import picocli.CommandLine.Command;
 /**
  * {@code id}: the id of the node the shell runs.
  */
-@Command(name = "id", mixinStandardHelpOptions = true, description = "Show the id of this node.")
+@Command(name = "id", description = "Show the id of this node.")
 public class IdCommand extends ShellCommandBase {
 	@Override
 	protected void run() {

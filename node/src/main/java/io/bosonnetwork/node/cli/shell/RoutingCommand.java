@@ -31,8 +31,7 @@ import io.bosonnetwork.kademlia.KadNode;
 /**
  * {@code routing}: the routing table the node has now, as opposed to the one it saved ({@code cache}).
  */
-@Command(name = "routing", mixinStandardHelpOptions = true,
-		description = "Show the node's routing tables as they are now.")
+@Command(name = "routing", description = "Show the node's routing tables as they are now.")
 public class RoutingCommand extends ShellCommandBase {
 	@Override
 	protected void run() throws Exception {

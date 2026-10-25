@@ -27,8 +27,7 @@ import picocli.CommandLine.Command;
 /**
  * {@code stop}: stops the node without leaving the shell, which is how a node's shutdown is watched.
  */
-@Command(name = "stop", mixinStandardHelpOptions = true,
-		description = "Stop the node. The shell stays open; 'exit' leaves it.")
+@Command(name = "stop", description = "Stop the node. The shell stays open; 'exit' leaves it.")
 public class StopCommand extends ShellCommandBase {
 	@Override
 	protected void run() throws Exception {

@@ -39,11 +39,11 @@ import io.bosonnetwork.vertx.ContextualFuture;
 /**
  * {@code store}: puts a value on the DHT.
  */
-@Command(name = "store", mixinStandardHelpOptions = true, description = "Store a value on the DHT.",
+@Command(name = "store", description = "Store a value on the DHT.",
 		subcommands = {StoreCommand.ValueCommand.class})
 public class StoreCommand extends ShellGroup {
 
-	@Command(name = "value", mixinStandardHelpOptions = true, description = {"Store a value on the DHT.",
+	@Command(name = "value", description = {"Store a value on the DHT.",
 			"Immutable by default: its id is the hash of its data. A mutable value is signed, and can be updated; "
 					+ "an encrypted one can be read only by its recipient."})
 	public static class ValueCommand extends ShellCommandBase {

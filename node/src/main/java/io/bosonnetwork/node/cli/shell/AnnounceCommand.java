@@ -38,11 +38,11 @@ import io.bosonnetwork.vertx.ContextualFuture;
 /**
  * {@code announce}: tells the DHT that a service can be reached at an endpoint.
  */
-@Command(name = "announce", mixinStandardHelpOptions = true, description = "Announce a service peer on the DHT.",
+@Command(name = "announce", description = "Announce a service peer on the DHT.",
 		subcommands = {AnnounceCommand.PeerCommand.class})
 public class AnnounceCommand extends ShellGroup {
 
-	@Command(name = "peer", mixinStandardHelpOptions = true, description = {"Announce a service peer on the DHT.",
+	@Command(name = "peer", description = {"Announce a service peer on the DHT.",
 			"Without a key, a new one is generated and printed: it is what updating this announcement later needs."})
 	public static class PeerCommand extends ShellCommandBase {
 		@Option(names = {"-k", "--private-key"}, paramLabel = "<key>",

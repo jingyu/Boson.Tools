@@ -26,6 +26,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 
 import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
 
 import io.bosonnetwork.cli.common.ExitCode;
@@ -37,6 +38,10 @@ import io.bosonnetwork.kademlia.KadNode;
  * A command typed at the shell's prompt: it works with the node the shell started.
  */
 public abstract class ShellCommandBase implements Callable<Integer> {
+	/** {@code -h} / {@code --help}. Only help: a version per command means nothing inside the shell. */
+	@Option(names = {"-h", "--help"}, usageHelp = true, description = "Show this help message and exit.")
+	boolean helpRequested;
+
 	/** The command's specification, injected by picocli. */
 	@Spec
 	protected CommandSpec spec;

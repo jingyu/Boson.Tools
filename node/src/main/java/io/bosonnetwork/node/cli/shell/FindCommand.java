@@ -38,14 +38,14 @@ import io.bosonnetwork.Value;
 /**
  * {@code find}: looks a node, a value or a peer up on the DHT.
  */
-@Command(name = "find", mixinStandardHelpOptions = true, description = "Look up a node, a value or a peer.",
+@Command(name = "find", description = "Look up a node, a value or a peer.",
 		subcommands = {FindCommand.NodeCommand.class, FindCommand.ValueCommand.class, FindCommand.PeerCommand.class})
 public class FindCommand extends ShellGroup {
 	/** How thorough a lookup is, for the help of each command. */
 	static final String MODE_DESCRIPTION = "How thorough the lookup is: arbitrary, optimistic or conservative. "
 			+ "Default: ${DEFAULT-VALUE}.";
 
-	@Command(name = "node", mixinStandardHelpOptions = true, description = "Find a node, and show what the DHT knows of it.")
+	@Command(name = "node", description = "Find a node, and show what the DHT knows of it.")
 	public static class NodeCommand extends ShellCommandBase {
 		@Option(names = {"-m", "--mode"}, paramLabel = "<mode>", defaultValue = "conservative",
 				description = MODE_DESCRIPTION)
@@ -64,7 +64,7 @@ public class FindCommand extends ShellGroup {
 		}
 	}
 
-	@Command(name = "value", mixinStandardHelpOptions = true, description = "Find a value, and show it if the DHT has it.")
+	@Command(name = "value", description = "Find a value, and show it if the DHT has it.")
 	public static class ValueCommand extends ShellCommandBase {
 		@Option(names = {"-m", "--mode"}, paramLabel = "<mode>", defaultValue = "conservative",
 				description = MODE_DESCRIPTION)
@@ -83,7 +83,7 @@ public class FindCommand extends ShellGroup {
 		}
 	}
 
-	@Command(name = "peer", mixinStandardHelpOptions = true, description = "Find the peers announced for a service.")
+	@Command(name = "peer", description = "Find the peers announced for a service.")
 	public static class PeerCommand extends ShellCommandBase {
 		@Option(names = {"-m", "--mode"}, paramLabel = "<mode>", defaultValue = "conservative",
 				description = MODE_DESCRIPTION)

@@ -140,6 +140,16 @@ class ShellTests {
 		assertTrue(session("find value --help\nexit\n").contains("Usage: find value"));
 		assertTrue(session("storage values --help\nexit\n").contains("Usage: storage values"));
 		assertTrue(session("store value --help\nexit\n").contains("Usage: store value"));
+		assertTrue(session("id -h\nexit\n").contains("Usage: id"));
+		assertTrue(session("find -h\nexit\n").contains("Usage: find"));
+	}
+
+	@Test
+	void shellCommandsTakeNoVersionOption() throws Exception {
+		// --version is the tool's, outside the shell; a command typed at the prompt only offers help.
+		String output = session("id --version\nexit\n");
+		assertTrue(output.contains("Unknown option: '--version'"), output);
+		assertFalse(session("help id\nexit\n").contains("--version"));
 	}
 
 	@Test

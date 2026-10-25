@@ -33,8 +33,7 @@ import io.bosonnetwork.node.cli.RoutingCache;
  * {@code cache}: the routing table saved on disk, as opposed to the one the node has now
  * ({@code routing}). The same view as {@code boson-node cache}, from the prompt.
  */
-@Command(name = "cache", mixinStandardHelpOptions = true,
-		description = "Show a routing table saved in a data directory.")
+@Command(name = "cache", description = "Show a routing table saved in a data directory.")
 public class CacheCommand extends ShellCommandBase {
 	@Parameters(paramLabel = "<dir>", arity = "0..1", defaultValue = ".",
 			description = "The data directory holding dht4.cache and dht6.cache. Default: the current directory.")

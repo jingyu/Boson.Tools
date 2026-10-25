@@ -33,7 +33,7 @@ import io.bosonnetwork.crypto.Signature;
 /**
  * {@code keygen}: a new key pair, for trying things out in the shell.
  */
-@Command(name = "keygen", mixinStandardHelpOptions = true, description = "Generate a key pair.")
+@Command(name = "keygen", description = "Generate a key pair.")
 public class KeygenCommand extends ShellCommandBase {
 	@Option(names = "--hex", description = "Print the keys as hex rather than Base58.")
 	boolean hex;

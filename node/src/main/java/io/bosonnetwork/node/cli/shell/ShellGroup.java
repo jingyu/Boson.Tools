@@ -26,6 +26,7 @@ import java.util.concurrent.Callable;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
 
 import io.bosonnetwork.cli.common.ExitCode;
@@ -35,6 +36,10 @@ import io.bosonnetwork.cli.common.ExitCode;
  * commands, it lists them.
  */
 public abstract class ShellGroup implements Callable<Integer> {
+	/** {@code -h} / {@code --help}. Only help: a version per command means nothing inside the shell. */
+	@Option(names = {"-h", "--help"}, usageHelp = true, description = "Show this help message and exit.")
+	boolean helpRequested;
+
 	/** The group's specification, injected by picocli. */
 	@Spec
 	protected CommandSpec spec;

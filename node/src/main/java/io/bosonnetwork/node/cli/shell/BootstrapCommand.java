@@ -31,8 +31,7 @@ import io.bosonnetwork.node.cli.NodeOptions;
 /**
  * {@code bootstrap}: joins the DHT through a node that is already on it.
  */
-@Command(name = "bootstrap", mixinStandardHelpOptions = true,
-		description = "Join the DHT through a node already on it.")
+@Command(name = "bootstrap", description = "Join the DHT through a node already on it.")
 public class BootstrapCommand extends ShellCommandBase {
 	@Parameters(paramLabel = "<id:address:port>", description = "The node to bootstrap from.")
 	String bootstrap;

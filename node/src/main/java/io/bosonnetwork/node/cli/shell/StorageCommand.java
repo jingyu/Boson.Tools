@@ -40,13 +40,12 @@ import io.bosonnetwork.vertx.ContextualFuture;
 /**
  * {@code storage}: what this node holds locally, as opposed to what the DHT holds ({@code find}).
  */
-@Command(name = "storage", mixinStandardHelpOptions = true,
-		description = "Show the values and peers stored on this node.",
+@Command(name = "storage", description = "Show the values and peers stored on this node.",
 		subcommands = {StorageCommand.ValuesCommand.class, StorageCommand.ValueCommand.class,
 				StorageCommand.PeersCommand.class, StorageCommand.PeerCommand.class})
 public class StorageCommand extends ShellGroup {
 
-	@Command(name = "values", mixinStandardHelpOptions = true, description = "List the values stored on this node.")
+	@Command(name = "values", description = "List the values stored on this node.")
 	public static class ValuesCommand extends ShellCommandBase {
 		@Override
 		protected void run() throws Exception {
@@ -63,7 +62,7 @@ public class StorageCommand extends ShellGroup {
 		}
 	}
 
-	@Command(name = "value", mixinStandardHelpOptions = true, description = "Show a value stored on this node.")
+	@Command(name = "value", description = "Show a value stored on this node.")
 	public static class ValueCommand extends ShellCommandBase {
 		@Parameters(paramLabel = "<value-id>", description = "The value.")
 		Id valueId;
@@ -78,7 +77,7 @@ public class StorageCommand extends ShellGroup {
 		}
 	}
 
-	@Command(name = "peers", mixinStandardHelpOptions = true, description = "List the peers stored on this node.")
+	@Command(name = "peers", description = "List the peers stored on this node.")
 	public static class PeersCommand extends ShellCommandBase {
 		@Override
 		protected void run() throws Exception {
@@ -95,7 +94,7 @@ public class StorageCommand extends ShellGroup {
 		}
 	}
 
-	@Command(name = "peer", mixinStandardHelpOptions = true, description = "Show the peers stored for one service.")
+	@Command(name = "peer", description = "Show the peers stored for one service.")
 	public static class PeerCommand extends ShellCommandBase {
 		@Parameters(paramLabel = "<peer-id>", description = "The peer.")
 		Id peerId;

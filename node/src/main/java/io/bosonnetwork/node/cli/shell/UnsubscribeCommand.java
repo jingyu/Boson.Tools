@@ -32,7 +32,7 @@ import io.bosonnetwork.cli.common.CliException;
 /**
  * {@code unsubscribe}: stops watching what {@code subscribe} started watching.
  */
-@Command(name = "unsubscribe", mixinStandardHelpOptions = true, description = "Stop watching a value or peer records.")
+@Command(name = "unsubscribe", description = "Stop watching a value or peer records.")
 public class UnsubscribeCommand extends ShellCommandBase {
 	@Parameters(index = "0", paramLabel = "<kind>", description = "value or peer.")
 	String kind;

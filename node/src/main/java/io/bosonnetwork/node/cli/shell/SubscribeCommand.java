@@ -46,7 +46,7 @@ import io.bosonnetwork.cli.common.Output;
  * {@code subscribe}: asks the nodes storing a value or peer records to report changes, and prints each one as
  * it arrives, until {@code unsubscribe}.
  */
-@Command(name = "subscribe", mixinStandardHelpOptions = true, description = "Watch a value or peer records for changes.",
+@Command(name = "subscribe", description = "Watch a value or peer records for changes.",
 		subcommands = {SubscribeCommand.ValueCommand.class, SubscribeCommand.PeerCommand.class,
 				SubscribeCommand.ListCommand.class})
 public class SubscribeCommand extends ShellGroup {
@@ -84,7 +84,7 @@ public class SubscribeCommand extends ShellGroup {
 		return "fingerprint " + peer.getFingerprint() + ", seq " + peer.getSequenceNumber() + ", " + peer.getEndpoint();
 	}
 
-	@Command(name = "value", mixinStandardHelpOptions = true, description = "Watch a value for newer versions.")
+	@Command(name = "value", description = "Watch a value for newer versions.")
 	public static class ValueCommand extends ShellCommandBase {
 		@Option(names = {"-s", "--seq"}, paramLabel = "<n>",
 				description = "The version already held; only newer ones are reported. Default: report the current one too.")
@@ -106,7 +106,7 @@ public class SubscribeCommand extends ShellGroup {
 		}
 	}
 
-	@Command(name = "peer", mixinStandardHelpOptions = true, description = "Watch the peer records under an id.")
+	@Command(name = "peer", description = "Watch the peer records under an id.")
 	public static class PeerCommand extends ShellCommandBase {
 		@Parameters(paramLabel = "<peer-id>", description = "The peer id to watch.")
 		Id id;
@@ -124,7 +124,7 @@ public class SubscribeCommand extends ShellGroup {
 		}
 	}
 
-	@Command(name = "list", mixinStandardHelpOptions = true, description = "List what is watched.")
+	@Command(name = "list", description = "List what is watched.")
 	public static class ListCommand extends ShellCommandBase {
 		@Override
 		protected void run() {
