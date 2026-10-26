@@ -42,6 +42,7 @@ import io.bosonnetwork.director.cli.Arguments;
 import io.bosonnetwork.director.client.DirectorAdmin;
 import io.bosonnetwork.director.client.FederatedNode;
 import io.bosonnetwork.director.client.FederatedNodeDescriptor;
+import io.bosonnetwork.director.client.FederatedNodeHealth;
 import io.bosonnetwork.director.client.FederationProposal;
 import io.bosonnetwork.director.client.exceptions.ConflictException;
 import io.bosonnetwork.director.client.exceptions.NotFoundException;
@@ -76,7 +77,7 @@ public class FederationCommand extends CliGroup {
 	@Command(name = "node", description = "Other nodes: the decisions made about them here, and whether they are admitted.",
 			subcommands = {NodeGroup.ListCommand.class, NodeGroup.ShowCommand.class, NodeGroup.AdmitCommand.class,
 					NodeGroup.SuspendCommand.class, NodeGroup.ProposeCommand.class, NodeGroup.RemoveCommand.class,
-					NodeGroup.DescribeCommand.class})
+					NodeGroup.DescribeCommand.class, NodeGroup.HealthCommand.class})
 	public static class NodeGroup extends CliGroup {
 		@Command(name = "list", description = "List the nodes this node has a relationship with: admitted, suspended, pending or declined.")
 		public static class ListCommand extends DirectorCommand {
@@ -92,7 +93,24 @@ public class FederationCommand extends CliGroup {
 			}
 		}
 
-		@Command(name = "show", description = "Show whether a node is admitted, and why.")
+		@Command(name = "health", description = {"List how working with other nodes has gone lately, the most recently seen first.",
+				"Every node heard from within the last day is listed, whether this node has a relationship with it or not. "
+						+ "The node keeps this in memory: it starts empty after a restart."})
+		public static class HealthCommand extends DirectorCommand {
+			@Mixin
+			PageOptions paging;
+
+			@Override
+			protected void run() throws Exception {
+				DirectorAdmin admin = context().directorAdmin();
+				PaginatedResult<FederatedNodeHealth> page = paging.fetch(this, admin::listFederatedNodeHealth);
+				Listing.page(output(), page, paging, "nodes", AdminViews.FEDERATED_NODE_HEALTH_HEADERS,
+						AdminViews::federatedNodeHealthRow, AdminViews::federatedNodeHealthJson,
+						"No node has been heard from within the last day.");
+			}
+		}
+
+		@Command(name = "show", description = "Show whether a node is admitted, and why, and how working with it has gone lately.")
 		public static class ShowCommand extends DirectorCommand {
 			@Parameters(paramLabel = "<node-id>", description = "The node.")
 			Id nodeId;

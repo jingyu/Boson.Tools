@@ -388,6 +388,20 @@ public class BosonDirectorCliTests {
 	}
 
 	@Test
+	void healthListsTheNodesHeardFrom(@TempDir Path dir) {
+		Id peer = Id.random();
+		director.reply("GET", "/api/v1/admin/federation/health", 200,
+				"{\"page\":1,\"pageSize\":1,\"totalItems\":1,\"totalPages\":1,\"items\":[{\"nodeId\":\"" + peer +
+						"\",\"lastSeenAt\":1,\"lastFailureAt\":1,\"lastFailure\":\"TIMEOUT\",\"consecutiveFailures\":3," +
+						"\"lastHour\":{\"SUCCESS\":5,\"TIMEOUT\":3}}]}");
+
+		Result result = admin(dir).run("federation", "node", "health");
+		assertEquals(0, result.exitCode(), result::toString);
+		assertTrue(result.out().contains(peer.toBase58String()), result::toString);
+		assertTrue(result.out().contains("success 5, timeout 3"), result::toString);
+	}
+
+	@Test
 	void aNodeWithoutADecisionShowsTheModesAdmission(@TempDir Path dir) {
 		Id peer = Id.random();
 		director.reply("GET", "/api/v1/admin/federation/nodes/" + peer, 200,

@@ -32,6 +32,7 @@ import io.bosonnetwork.director.client.BlacklistedNode;
 import io.bosonnetwork.director.client.Feature;
 import io.bosonnetwork.director.client.FederatedNode;
 import io.bosonnetwork.director.client.FederatedNodeDescriptor;
+import io.bosonnetwork.director.client.FederatedNodeHealth;
 import io.bosonnetwork.director.client.FederatedService;
 import io.bosonnetwork.director.client.FederationProposal;
 import io.bosonnetwork.director.client.Plan;
@@ -58,6 +59,8 @@ public final class AdminViews {
 	public static final List<String> FEDERATED_NODE_HEADERS = List.of("NODE ID", "STATE", "ADMISSION", "NOTE", "UPDATED");
 	/** The table headers of a federated service list. */
 	public static final List<String> FEDERATED_SERVICE_HEADERS = List.of("SERVICE TYPE", "NAME", "PEER ID", "ENDPOINT", "FEDERATION");
+	/** The table headers of a list of nodes' health. */
+	public static final List<String> FEDERATED_NODE_HEALTH_HEADERS = List.of("NODE ID", "LAST SEEN", "LAST SUCCESS", "FAILURES IN A ROW", "LAST FAILURE", "LAST HOUR");
 	/** The table headers of a federation proposal list. */
 	public static final List<String> FEDERATION_PROPOSAL_HEADERS = List.of("ID", "NODE ID", "ROLE", "STATUS", "NOTE", "CREATED");
 
@@ -347,7 +350,69 @@ public final class AdminViews {
 			rows.put("Created", Formats.time(node.getCreatedAt()));
 			rows.put("Updated", Formats.time(node.getUpdatedAt()));
 		}
+		node.getHealth().ifPresentOrElse(h -> {
+			rows.put("Last seen", Formats.time(h.getLastSeenAt()));
+			rows.put("Last success", h.getLastSuccessAt() > 0 ? Formats.time(h.getLastSuccessAt()) : "-");
+			rows.put("Last failure", lastFailure(h));
+			rows.put("Failures in a row", Integer.toString(h.getConsecutiveFailures()));
+			rows.put("Last hour", lastHour(h));
+		}, () -> rows.put("Health", "nothing observed within the last day"));
 		return rows;
+	}
+
+	private static String lastFailure(FederatedNodeHealth h) {
+		if (h.getLastFailureAt() == 0)
+			return "-";
+		String how = h.getLastFailure().map(o -> o.name().toLowerCase(Locale.ROOT)).orElse("failed");
+		return Formats.time(h.getLastFailureAt()) + " (" + how + h.getLastFailureDetail().map(d -> ": " + d).orElse("") + ")";
+	}
+
+	private static String lastHour(FederatedNodeHealth h) {
+		if (h.getLastHour().isEmpty())
+			return "-";
+		StringBuilder sb = new StringBuilder();
+		h.getLastHour().forEach((outcome, count) -> {
+			if (!sb.isEmpty())
+				sb.append(", ");
+			sb.append(outcome.name().toLowerCase(Locale.ROOT)).append(' ').append(count);
+		});
+		return sb.toString();
+	}
+
+	/**
+	 * Returns the table row of a node's health.
+	 *
+	 * @param h the health
+	 * @return the row
+	 */
+	public static List<String> federatedNodeHealthRow(FederatedNodeHealth h) {
+		return List.of(h.getNodeId().toBase58String(),
+				Formats.time(h.getLastSeenAt()),
+				h.getLastSuccessAt() > 0 ? Formats.time(h.getLastSuccessAt()) : "-",
+				Integer.toString(h.getConsecutiveFailures()),
+				h.getLastFailure().map(o -> o.name().toLowerCase(Locale.ROOT)).orElse("-"),
+				lastHour(h));
+	}
+
+	/**
+	 * Returns the JSON of a node's health.
+	 *
+	 * @param h the health
+	 * @return the JSON object
+	 */
+	public static Map<String, Object> federatedNodeHealthJson(FederatedNodeHealth h) {
+		Map<String, Object> json = new LinkedHashMap<>();
+		json.put("nodeId", h.getNodeId());
+		json.put("lastSeenAt", h.getLastSeenAt());
+		json.put("lastSuccessAt", h.getLastSuccessAt() > 0 ? h.getLastSuccessAt() : null);
+		json.put("lastFailureAt", h.getLastFailureAt() > 0 ? h.getLastFailureAt() : null);
+		json.put("lastFailure", h.getLastFailure().map(Enum::name).orElse(null));
+		json.put("lastFailureDetail", h.getLastFailureDetail().orElse(null));
+		json.put("consecutiveFailures", h.getConsecutiveFailures());
+		Map<String, Integer> lastHour = new LinkedHashMap<>();
+		h.getLastHour().forEach((outcome, count) -> lastHour.put(outcome.name(), count));
+		json.put("lastHour", lastHour);
+		return json;
 	}
 
 	/**
@@ -365,6 +430,7 @@ public final class AdminViews {
 		json.put("note", node.getNote().orElse(null));
 		json.put("createdAt", node.getCreatedAt());
 		json.put("updatedAt", node.getUpdatedAt());
+		json.put("health", node.getHealth().map(AdminViews::federatedNodeHealthJson).orElse(null));
 		return json;
 	}
 
