@@ -24,14 +24,15 @@ package io.bosonnetwork.director.cli;
 
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import io.bosonnetwork.cli.common.Formats;
 import io.bosonnetwork.director.client.BlacklistedNode;
 import io.bosonnetwork.director.client.Feature;
 import io.bosonnetwork.director.client.FederatedNode;
+import io.bosonnetwork.director.client.FederatedNodeDescriptor;
 import io.bosonnetwork.director.client.FederatedService;
-import io.bosonnetwork.director.client.FederationProposal;
 import io.bosonnetwork.director.client.Plan;
 import io.bosonnetwork.director.client.Profile;
 import io.bosonnetwork.director.client.Subscription;
@@ -53,11 +54,9 @@ public final class AdminViews {
 	/** The table headers of a blacklist. */
 	public static final List<String> BLACKLIST_HEADERS = List.of("ID", "NODE ID", "HOST", "AUTO", "REASON", "CREATED");
 	/** The table headers of a federated node list. */
-	public static final List<String> FEDERATED_NODE_HEADERS = List.of("NODE ID", "NAME", "FEDERATED", "REPUTATION", "API ENDPOINT", "UPDATED");
+	public static final List<String> FEDERATED_NODE_HEADERS = List.of("NODE ID", "STATE", "ADMISSION", "NOTE", "UPDATED");
 	/** The table headers of a federated service list. */
-	public static final List<String> FEDERATED_SERVICE_HEADERS = List.of("SERVICE ID", "NAME", "PEER ID", "ENDPOINT", "FEDERATION");
-	/** The table headers of a proposal list. */
-	public static final List<String> PROPOSAL_HEADERS = List.of("ID", "NODE ID", "NAME", "ROLE", "STATUS", "PROPOSED", "CONFIRMED");
+	public static final List<String> FEDERATED_SERVICE_HEADERS = List.of("SERVICE TYPE", "NAME", "PEER ID", "ENDPOINT", "FEDERATION");
 
 	private static final int BRIEF = 40;
 
@@ -307,6 +306,14 @@ public final class AdminViews {
 
 	// ---- Federation ----------------------------------------------------------------------------
 
+	private static String admission(FederatedNode node) {
+		return node.getAdmission().map(r -> r.name().toLowerCase(Locale.ROOT)).orElse("-");
+	}
+
+	private static String state(FederatedNode node) {
+		return node.getState().map(st -> st.name().toLowerCase(Locale.ROOT)).orElse("-");
+	}
+
 	/**
 	 * Returns the table row of a federated node.
 	 *
@@ -315,11 +322,10 @@ public final class AdminViews {
 	 */
 	public static List<String> federatedNodeRow(FederatedNode node) {
 		return List.of(node.getId().toBase58String(),
-				Formats.text(node.getName()),
-				Formats.yesNo(node.isFederated()),
-				Integer.toString(node.getReputation()),
-				Formats.text(node.getApiEndpoint()),
-				Formats.time(node.getUpdatedAt()));
+				state(node),
+				admission(node),
+				Formats.text(node.getNote()),
+				node.getUpdatedAt() > 0 ? Formats.time(node.getUpdatedAt()) : "-");
 	}
 
 	/**
@@ -331,17 +337,13 @@ public final class AdminViews {
 	public static Map<String, String> federatedNode(FederatedNode node) {
 		Map<String, String> rows = new LinkedHashMap<>();
 		rows.put("Node id", node.getId().toBase58String());
-		rows.put("Name", Formats.text(node.getName()));
-		rows.put("Federated", Formats.yesNo(node.isFederated()));
-		rows.put("Reputation", Integer.toString(node.getReputation()));
-		rows.put("API endpoint", Formats.text(node.getApiEndpoint()));
-		rows.put("Addresses", Formats.list(node.getAddresses()));
-		rows.put("Software", Formats.text((node.getSoftware().orElse("") + " " + node.getVersion().orElse("")).strip()));
-		rows.put("Website", Formats.text(node.getWebsite()));
-		rows.put("Contact", Formats.text(node.getContact()));
-		rows.put("Description", Formats.text(node.getDescription()));
-		rows.put("Created", Formats.time(node.getCreatedAt()));
-		rows.put("Updated", Formats.time(node.getUpdatedAt()));
+		rows.put("Relationship", node.getState().isPresent() ? state(node) : "none (the federation mode decides)");
+		rows.put("Admission", admission(node) + (node.isAdmitted() ? " (admitted)" : " (refused)"));
+		rows.put("Note", Formats.text(node.getNote()));
+		if (node.getCreatedAt() > 0) {
+			rows.put("Created", Formats.time(node.getCreatedAt()));
+			rows.put("Updated", Formats.time(node.getUpdatedAt()));
+		}
 		return rows;
 	}
 
@@ -353,20 +355,58 @@ public final class AdminViews {
 	 */
 	public static Map<String, Object> federatedNodeJson(FederatedNode node) {
 		Map<String, Object> json = new LinkedHashMap<>();
-		json.put("id", node.getId());
-		json.put("name", node.getName().orElse(null));
-		json.put("federated", node.isFederated());
-		json.put("reputation", node.getReputation());
-		json.put("apiEndpoint", node.getApiEndpoint().orElse(null));
-		json.put("addresses", node.getAddresses());
-		json.put("software", node.getSoftware().orElse(null));
-		json.put("version", node.getVersion().orElse(null));
-		json.put("logo", node.getLogo().orElse(null));
-		json.put("website", node.getWebsite().orElse(null));
-		json.put("contact", node.getContact().orElse(null));
-		json.put("description", node.getDescription().orElse(null));
+		json.put("nodeId", node.getId());
+		json.put("state", node.getState().map(st -> st.name().toLowerCase(Locale.ROOT)).orElse(null));
+		json.put("admission", node.getAdmission().map(Enum::name).orElse(null));
+		json.put("admitted", node.isAdmitted());
+		json.put("note", node.getNote().orElse(null));
 		json.put("createdAt", node.getCreatedAt());
 		json.put("updatedAt", node.getUpdatedAt());
+		return json;
+	}
+
+	/**
+	 * Returns the details of a node's descriptor.
+	 *
+	 * @param d the descriptor
+	 * @return the details, keyed by label
+	 */
+	public static Map<String, String> federatedNodeDescriptor(FederatedNodeDescriptor d) {
+		Map<String, String> rows = new LinkedHashMap<>();
+		rows.put("Node id", d.getNodeId().toBase58String());
+		rows.put("Name", Formats.text(d.getName()));
+		rows.put("Software", Formats.text((d.getSoftware().orElse("") + " " + d.getVersion().orElse("")).strip()));
+		rows.put("Website", Formats.text(d.getWebsite()));
+		rows.put("Contact", Formats.text(d.getContact()));
+		rows.put("Federation mode", d.getMode().map(m -> m.wireName()).orElse("-"));
+		rows.put("Protocols", Formats.list(d.getProtocols()));
+		rows.put("Services", Integer.toString(d.getServices().size()));
+		rows.put("Signed", Formats.time(d.getIssuedAt()));
+		rows.put("Expires", Formats.time(d.getExpiresAt()));
+		return rows;
+	}
+
+	/**
+	 * Returns the JSON of a node's descriptor.
+	 *
+	 * @param d the descriptor
+	 * @return the JSON object
+	 */
+	public static Map<String, Object> federatedNodeDescriptorJson(FederatedNodeDescriptor d) {
+		Map<String, Object> json = new LinkedHashMap<>();
+		json.put("nodeId", d.getNodeId());
+		json.put("name", d.getName().orElse(null));
+		json.put("software", d.getSoftware().orElse(null));
+		json.put("version", d.getVersion().orElse(null));
+		json.put("logo", d.getLogo().orElse(null));
+		json.put("website", d.getWebsite().orElse(null));
+		json.put("contact", d.getContact().orElse(null));
+		json.put("mode", d.getMode().map(m -> m.wireName()).orElse(null));
+		json.put("protocols", d.getProtocols());
+		json.put("capabilities", d.getCapabilities());
+		json.put("services", d.getServices().stream().map(AdminViews::federatedServiceJson).toList());
+		json.put("issuedAt", d.getIssuedAt());
+		json.put("expiresAt", d.getExpiresAt());
 		return json;
 	}
 
@@ -377,11 +417,11 @@ public final class AdminViews {
 	 * @return the row
 	 */
 	public static List<String> federatedServiceRow(FederatedService service) {
-		return List.of(Formats.text(service.getServiceId()),
-				Formats.text(service.getServiceName()),
+		return List.of(service.getType(),
+				Formats.text(service.getName()),
 				service.getPeerId().toBase58String(),
-				Formats.text(service.getEndpoint()),
-				service.isFederationEnabled() ? "enabled" : "disabled");
+				service.getEndpoint(),
+				service.isFederation() ? "yes" : "no");
 	}
 
 	/**
@@ -392,83 +432,12 @@ public final class AdminViews {
 	 */
 	public static Map<String, Object> federatedServiceJson(FederatedService service) {
 		Map<String, Object> json = new LinkedHashMap<>();
-		json.put("serviceId", service.getServiceId().orElse(null));
-		json.put("serviceName", service.getServiceName().orElse(null));
+		json.put("type", service.getType());
+		json.put("name", service.getName().orElse(null));
 		json.put("peerId", service.getPeerId());
-		json.put("nodeId", service.getNodeId().orElse(null));
-		json.put("endpoint", service.getEndpoint().orElse(null));
-		json.put("fingerprint", service.getFingerprint());
-		json.put("federationEnabled", service.isFederationEnabled());
-		json.put("extra", service.getExtra().orElse(null));
-		return json;
-	}
-
-	/**
-	 * Returns the table row of a federation proposal.
-	 *
-	 * @param proposal the proposal
-	 * @return the row
-	 */
-	public static List<String> proposalRow(FederationProposal proposal) {
-		return List.of(Long.toString(proposal.getId()),
-				proposal.getNodeId().toBase58String(),
-				Formats.text(proposal.getName()),
-				proposal.getRole().toString(),
-				proposal.getStatus().toString(),
-				Formats.time(proposal.getProposedAt()),
-				Formats.time(proposal.getConfirmedAt()));
-	}
-
-	/**
-	 * Returns the details of a federation proposal.
-	 *
-	 * @param proposal the proposal
-	 * @return the details, keyed by label
-	 */
-	public static Map<String, String> proposal(FederationProposal proposal) {
-		Map<String, String> rows = new LinkedHashMap<>();
-		rows.put("Proposal id", Long.toString(proposal.getId()));
-		rows.put("Node id", proposal.getNodeId().toBase58String());
-		rows.put("Name", Formats.text(proposal.getName()));
-		rows.put("Role", proposal.getRole() == FederationProposal.Role.OFFER ? "offer (this node proposed)" :
-				"answer (this node was proposed to)");
-		rows.put("Status", proposal.getStatus().toString());
-		rows.put("API endpoint", Formats.text(proposal.getApiEndpoint()));
-		rows.put("Addresses", Formats.list(proposal.getAddresses()));
-		rows.put("Software", Formats.text((proposal.getSoftware().orElse("") + " " + proposal.getVersion().orElse("")).strip()));
-		rows.put("Website", Formats.text(proposal.getWebsite()));
-		rows.put("Contact", Formats.text(proposal.getContact()));
-		rows.put("Proposed", Formats.time(proposal.getProposedAt()));
-		rows.put("Confirmed", Formats.time(proposal.getConfirmedAt()));
-		rows.put("Created", Formats.time(proposal.getCreatedAt()));
-		rows.put("Updated", Formats.time(proposal.getUpdatedAt()));
-		return rows;
-	}
-
-	/**
-	 * Returns the JSON of a federation proposal.
-	 *
-	 * @param proposal the proposal
-	 * @return the JSON object
-	 */
-	public static Map<String, Object> proposalJson(FederationProposal proposal) {
-		Map<String, Object> json = new LinkedHashMap<>();
-		json.put("id", proposal.getId());
-		json.put("nodeId", proposal.getNodeId());
-		json.put("name", proposal.getName().orElse(null));
-		json.put("role", proposal.getRole().toString());
-		json.put("status", proposal.getStatus().toString());
-		json.put("apiEndpoint", proposal.getApiEndpoint().orElse(null));
-		json.put("addresses", proposal.getAddresses());
-		json.put("software", proposal.getSoftware().orElse(null));
-		json.put("version", proposal.getVersion().orElse(null));
-		json.put("logo", proposal.getLogo().orElse(null));
-		json.put("website", proposal.getWebsite().orElse(null));
-		json.put("contact", proposal.getContact().orElse(null));
-		json.put("proposedAt", proposal.getProposedAt());
-		json.put("confirmedAt", proposal.getConfirmedAt());
-		json.put("createdAt", proposal.getCreatedAt());
-		json.put("updatedAt", proposal.getUpdatedAt());
+		json.put("endpoint", service.getEndpoint());
+		json.put("federation", service.isFederation());
+		json.put("extra", service.getExtra().isEmpty() ? null : service.getExtra());
 		return json;
 	}
 }

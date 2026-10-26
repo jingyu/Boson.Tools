@@ -347,13 +347,41 @@ public class BosonDirectorCliTests {
 	}
 
 	@Test
-	void aProposalThatDoesNotFederateFails(@TempDir Path dir) {
+	void admittingANodeSendsTheStateAndNote(@TempDir Path dir) {
 		Id peer = Id.random();
-		director.reply("POST", "/api/v1/admin/federation/proposals", 200, "null");
+		director.reply("PUT", "/api/v1/admin/federation/nodes/" + peer, 200,
+				"{\"nodeId\":\"" + peer + "\",\"state\":\"active\",\"origin\":\"admin\",\"note\":\"Partner\"," +
+						"\"admission\":\"ACTIVE\",\"createdAt\":1,\"updatedAt\":1}");
 
-		Result result = admin(dir).run("federation", "propose", peer.toBase58String());
-		assertEquals(1, result.exitCode(), result::toString);
-		assertTrue(result.out().contains("did not federate"), result::toString);
+		Result result = admin(dir).run("federation", "node", "admit", peer.toBase58String(), "--note", "Partner");
+		assertEquals(0, result.exitCode(), result::toString);
+		assertTrue(result.out().contains("Admitted node " + peer), result::toString);
+
+		Map<String, Object> body = director.requests("PUT", "/api/v1/admin/federation/nodes/" + peer).get(0).json();
+		assertEquals("active", body.get("state"));
+		assertEquals("Partner", body.get("note"));
+	}
+
+	@Test
+	void aNodeWithoutADecisionShowsTheModesAdmission(@TempDir Path dir) {
+		Id peer = Id.random();
+		director.reply("GET", "/api/v1/admin/federation/nodes/" + peer, 200,
+				"{\"nodeId\":\"" + peer + "\",\"admission\":\"OPEN\"}");
+
+		Result result = admin(dir).run("federation", "node", "show", peer.toBase58String());
+		assertEquals(0, result.exitCode(), result::toString);
+		assertTrue(result.out().contains("none (the federation mode decides)"), result::toString);
+		assertTrue(result.out().contains("open (admitted)"), result::toString);
+	}
+
+	@Test
+	void anUnreachableDescriptorIsNotFound(@TempDir Path dir) {
+		Id peer = Id.random();
+		director.reply("GET", "/api/v1/admin/federation/nodes/" + peer + "/descriptor", 404, "unreachable");
+
+		Result result = admin(dir).run("federation", "service", "list", peer.toBase58String());
+		assertTrue(result.exitCode() != 0, result::toString);
+		assertTrue(result.err().contains("could not be reached or verified"), result::toString);
 	}
 
 	@Test

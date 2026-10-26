@@ -20,15 +20,12 @@
  * SOFTWARE.
  */
 
+
 package io.bosonnetwork.director.cli.commands;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Option;
@@ -38,40 +35,45 @@ import io.bosonnetwork.Id;
 import io.bosonnetwork.cli.director.DirectorCommand;
 import io.bosonnetwork.cli.common.CliException;
 import io.bosonnetwork.cli.common.CliGroup;
-import io.bosonnetwork.cli.common.ExitCode;
 import io.bosonnetwork.cli.common.Listing;
 import io.bosonnetwork.cli.common.PageOptions;
 import io.bosonnetwork.director.cli.AdminViews;
 import io.bosonnetwork.director.cli.Arguments;
 import io.bosonnetwork.director.client.DirectorAdmin;
 import io.bosonnetwork.director.client.FederatedNode;
-import io.bosonnetwork.director.client.FederatedNodeUpdate;
-import io.bosonnetwork.director.client.FederatedService;
-import io.bosonnetwork.director.client.FederationProposal;
-import io.bosonnetwork.director.client.ProposalFilter;
-import io.bosonnetwork.director.client.Sort;
-import io.bosonnetwork.director.client.exceptions.ConflictException;
-import io.bosonnetwork.director.client.exceptions.DirectorException;
-import io.bosonnetwork.director.client.exceptions.ForbiddenException;
+import io.bosonnetwork.director.client.FederatedNodeDescriptor;
 import io.bosonnetwork.director.client.exceptions.NotFoundException;
-import io.bosonnetwork.director.client.exceptions.RateLimitException;
 import io.bosonnetwork.web.PaginatedResult;
 
 /**
  * The {@code federation} commands of {@code boson-director-cli}.
  */
-@Command(name = "federation", description = {"Inspect and manage this node's federation with other super nodes.",
-		"Federated nodes share services with each other. A node that does not federate answers every command "
-				+ "here with an error."},
-		subcommands = {FederationCommand.NodeGroup.class, FederationCommand.ServiceGroup.class,
-				FederationCommand.ProposalGroup.class, FederationCommand.ProposeCommand.class})
+@Command(name = "federation", description = {"Inspect and manage how this node federates with other super nodes.",
+		"In open mode every node is admitted unless blacklisted or suspended here; in allowlist mode only the nodes "
+				+ "admitted here are. A node that does not federate answers every command here with an error."},
+		subcommands = {FederationCommand.NodeGroup.class, FederationCommand.ServiceGroup.class})
 public class FederationCommand extends CliGroup {
+	// What the federation commands share: showing a node, and fetching a node's descriptor.
+	abstract static class FederationNodeCommand extends DirectorCommand {
+		void show(FederatedNode node, String message) {
+			if (output().isJson())
+				output().json(AdminViews.federatedNodeJson(node));
+			else
+				output().message(message);
+		}
 
-	@Command(name = "node", description = "The nodes this node has federated with.",
-			subcommands = {NodeGroup.ListCommand.class, NodeGroup.ShowCommand.class, NodeGroup.UpdateCommand.class,
-					NodeGroup.RemoveCommand.class})
+		FederatedNodeDescriptor descriptor(Id nodeId) throws Exception {
+			Optional<FederatedNodeDescriptor> d = await(context().directorAdmin().getFederatedNodeDescriptor(nodeId));
+			return d.orElseThrow(() -> CliException.notFound("Node " + nodeId + "'s descriptor could not be reached or verified.",
+					"Check the node id, and that the node is online and federates."));
+		}
+	}
+
+	@Command(name = "node", description = "Other nodes: the decisions made about them here, and whether they are admitted.",
+			subcommands = {NodeGroup.ListCommand.class, NodeGroup.ShowCommand.class, NodeGroup.AdmitCommand.class,
+					NodeGroup.SuspendCommand.class, NodeGroup.RemoveCommand.class, NodeGroup.DescribeCommand.class})
 	public static class NodeGroup extends CliGroup {
-		@Command(name = "list", description = "List the federated nodes.")
+		@Command(name = "list", description = "List the nodes admitted or suspended here.")
 		public static class ListCommand extends DirectorCommand {
 			@Mixin
 			PageOptions paging;
@@ -81,19 +83,18 @@ public class FederationCommand extends CliGroup {
 				DirectorAdmin admin = context().directorAdmin();
 				PaginatedResult<FederatedNode> page = paging.fetch(this, admin::listFederatedNodes);
 				Listing.page(output(), page, paging, "nodes", AdminViews.FEDERATED_NODE_HEADERS, AdminViews::federatedNodeRow,
-						AdminViews::federatedNodeJson, "This node has not federated with any node.");
+						AdminViews::federatedNodeJson, "No node has been admitted or suspended here.");
 			}
 		}
 
-		@Command(name = "show", description = "Show a federated node.")
+		@Command(name = "show", description = "Show whether a node is admitted, and why.")
 		public static class ShowCommand extends DirectorCommand {
 			@Parameters(paramLabel = "<node-id>", description = "The node.")
 			Id nodeId;
 
 			@Override
 			protected void run() throws Exception {
-				FederatedNode node = await(context().directorAdmin().getFederatedNode(nodeId))
-						.orElseThrow(() -> notFederated(nodeId));
+				FederatedNode node = await(context().directorAdmin().getFederatedNode(nodeId));
 				if (output().isJson())
 					output().json(AdminViews.federatedNodeJson(node));
 				else
@@ -101,61 +102,37 @@ public class FederationCommand extends CliGroup {
 			}
 		}
 
-		@Command(name = "update", description = "Suspend or resume the federation with a node, or change what this node records about it.")
-		public static class UpdateCommand extends DirectorCommand {
+		@Command(name = "admit", description = "Admit a node whatever the federation mode. The blacklist still refuses it.")
+		public static class AdmitCommand extends FederationNodeCommand {
 			@Parameters(paramLabel = "<node-id>", description = "The node.")
 			Id nodeId;
 
-			@ArgGroup(exclusive = true)
-			State state;
-
-			static class State {
-				@Option(names = "--suspend", required = true, description = "Suspend the federation with the node.")
-				boolean suspend;
-
-				@Option(names = "--resume", required = true, description = "Resume the federation with the node.")
-				boolean resume;
-			}
-
-			@Option(names = "--reputation", paramLabel = "<n>", description = "The reputation this node gives the node.")
-			Integer reputation;
-
-			@Option(names = "--description", paramLabel = "<text>", description = "This node's description of the node; an empty value clears it.")
-			String description;
+			@Option(names = "--note", paramLabel = "<text>", description = "A note about the node, up to 256 characters.")
+			String note;
 
 			@Override
 			protected void run() throws Exception {
-				FederatedNodeUpdate update = new FederatedNodeUpdate();
-				List<String> changed = new ArrayList<>();
-				if (state != null) {
-					update.federated(state.resume);
-					changed.add(state.resume ? "federation resumed" : "federation suspended");
-				}
-				if (reputation != null) {
-					update.reputation(reputation);
-					changed.add("reputation");
-				}
-				if (description != null) {
-					update.description(Arguments.blankToNull(description));
-					changed.add("description");
-				}
-				if (update.isEmpty())
-					throw CliException.usage("Nothing to update.", "Pass --suspend, --resume, --reputation or --description.");
-
-				try {
-					await(context().directorAdmin().updateFederatedNode(nodeId, update));
-				} catch (NotFoundException e) {
-					throw notFederated(nodeId);
-				}
-
-				if (output().isJson())
-					output().json(Map.of("nodeId", nodeId, "updated", changed));
-				else
-					output().message("Updated federated node " + nodeId + ": " + String.join(", ", changed) + ".");
+				FederatedNode node = await(context().directorAdmin().admitFederatedNode(nodeId, Arguments.blankToNull(note)));
+				show(node, "Admitted node " + nodeId + ".");
 			}
 		}
 
-		@Command(name = "remove", description = "Remove a node from this node's federation.")
+		@Command(name = "suspend", description = "Refuse a node whatever the federation mode.")
+		public static class SuspendCommand extends FederationNodeCommand {
+			@Parameters(paramLabel = "<node-id>", description = "The node.")
+			Id nodeId;
+
+			@Option(names = "--note", paramLabel = "<text>", description = "A note about the node, up to 256 characters.")
+			String note;
+
+			@Override
+			protected void run() throws Exception {
+				FederatedNode node = await(context().directorAdmin().suspendFederatedNode(nodeId, Arguments.blankToNull(note)));
+				show(node, "Suspended node " + nodeId + ".");
+			}
+		}
+
+		@Command(name = "remove", description = "Remove the decision made about a node here, so that the federation mode decides for it again.")
 		public static class RemoveCommand extends DirectorCommand {
 			@Parameters(paramLabel = "<node-id>", description = "The node.")
 			Id nodeId;
@@ -166,184 +143,56 @@ public class FederationCommand extends CliGroup {
 			@Override
 			protected void run() throws Exception {
 				DirectorAdmin admin = context().directorAdmin();
-				terminal().confirm("Remove node " + nodeId + " from the federation? It no longer shares services with this node.", yes);
+				terminal().confirm("Remove the decision about node " + nodeId + "? The federation mode decides for it again.", yes);
 
 				try {
 					await(admin.removeFederatedNode(nodeId));
 				} catch (NotFoundException e) {
-					throw notFederated(nodeId);
+					throw CliException.notFound("No decision has been made about node " + nodeId + " here.",
+							"List the nodes admitted or suspended with 'boson-director-cli federation node list'.");
 				}
 
 				if (output().isJson())
 					output().json(Map.of("nodeId", nodeId, "removed", true));
 				else
-					output().message("Removed node " + nodeId + " from the federation.");
+					output().message("Removed the decision about node " + nodeId + ".");
 			}
 		}
-	}
 
-	@Command(name = "service", description = "The services federated nodes share with this node.",
-			subcommands = {ServiceGroup.ListCommand.class})
-	public static class ServiceGroup extends CliGroup {
-		@Command(name = "list", description = "List the services a federated node shares with this node.")
-		public static class ListCommand extends DirectorCommand {
+		@Command(name = "describe", description = "Show what a node says about itself, from its signed descriptor.")
+		public static class DescribeCommand extends FederationNodeCommand {
 			@Parameters(paramLabel = "<node-id>", description = "The node.")
 			Id nodeId;
 
 			@Override
 			protected void run() throws Exception {
-				List<FederatedService> services = await(context().directorAdmin().listFederatedServices(nodeId));
-				Listing.list(output(), services, AdminViews.FEDERATED_SERVICE_HEADERS, AdminViews::federatedServiceRow,
-						AdminViews::federatedServiceJson, "Node " + nodeId + " shares no services with this node.");
+				FederatedNodeDescriptor d = descriptor(nodeId);
+				if (output().isJson()) {
+					output().json(AdminViews.federatedNodeDescriptorJson(d));
+				} else {
+					output().details(AdminViews.federatedNodeDescriptor(d));
+					output().message("");
+					Listing.list(output(), d.getServices(), AdminViews.FEDERATED_SERVICE_HEADERS,
+							AdminViews::federatedServiceRow, AdminViews::federatedServiceJson, "The node lists no services.");
+				}
 			}
 		}
 	}
 
-	@Command(name = "proposal", description = "The federation proposals this node has made and received.",
-			subcommands = {ProposalGroup.ListCommand.class, ProposalGroup.ShowCommand.class, ProposalGroup.RemoveCommand.class})
-	public static class ProposalGroup extends CliGroup {
-		@Command(name = "list", description = "List the federation proposals.")
-		public static class ListCommand extends DirectorCommand {
-			@Mixin
-			PageOptions paging;
-
-			@Option(names = "--node", paramLabel = "<node-id>", description = "Only the proposals made to or by this node.")
+	@Command(name = "service", description = "The services other nodes run.",
+			subcommands = {ServiceGroup.ListCommand.class})
+	public static class ServiceGroup extends CliGroup {
+		@Command(name = "list", description = "List the services a node says it runs, from its signed descriptor.")
+		public static class ListCommand extends FederationNodeCommand {
+			@Parameters(paramLabel = "<node-id>", description = "The node.")
 			Id nodeId;
 
-			@Option(names = "--role", paramLabel = "<role>",
-					description = "Only the proposals this node made (offer) or received (answer).")
-			FederationProposal.Role role;
-
-			@Option(names = "--status", paramLabel = "<state>", split = ",",
-					description = "Only the proposals in these states: created, proposed, accepted, declined or failed.")
-			List<FederationProposal.Status> statuses = new ArrayList<>();
-
-			@Option(names = "--sort", paramLabel = "<field>[:desc]", split = ",", converter = Arguments.SortConverter.class,
-					description = "Order by id, nodeId, name, role, status, proposedAt, confirmedAt, createdAt or updatedAt; "
-							+ "add :desc for the reverse order.")
-			List<Sort> sort = new ArrayList<>();
-
 			@Override
 			protected void run() throws Exception {
-				ProposalFilter filter = new ProposalFilter();
-				if (nodeId != null)
-					filter.nodeId(nodeId);
-				if (role != null)
-					filter.role(role);
-				if (!statuses.isEmpty())
-					filter.statuses(statuses.toArray(new FederationProposal.Status[0]));
-				Sort[] keys = sort.toArray(new Sort[0]);
-
-				DirectorAdmin admin = context().directorAdmin();
-				PaginatedResult<FederationProposal> page = paging.fetch(this,
-						(p, size) -> admin.listFederationProposals(filter, p, size, keys));
-				Listing.page(output(), page, paging, "proposals", AdminViews.PROPOSAL_HEADERS, AdminViews::proposalRow,
-						AdminViews::proposalJson, "No proposals match.");
+				FederatedNodeDescriptor d = descriptor(nodeId);
+				Listing.list(output(), d.getServices(), AdminViews.FEDERATED_SERVICE_HEADERS, AdminViews::federatedServiceRow,
+						AdminViews::federatedServiceJson, "Node " + nodeId + " lists no services.");
 			}
 		}
-
-		@Command(name = "show", description = "Show a federation proposal.")
-		public static class ShowCommand extends DirectorCommand {
-			@Parameters(paramLabel = "<proposal-id>", description = "The proposal, as 'federation proposal list' shows it.")
-			long proposalId;
-
-			@Override
-			protected void run() throws Exception {
-				FederationProposal proposal = await(context().directorAdmin().getFederationProposal(proposalId))
-						.orElseThrow(() -> noSuchProposal(proposalId));
-				if (output().isJson())
-					output().json(AdminViews.proposalJson(proposal));
-				else
-					output().details(AdminViews.proposal(proposal));
-			}
-		}
-
-		@Command(name = "remove", description = "Remove a federation proposal from the record. A federation it established is not affected.")
-		public static class RemoveCommand extends DirectorCommand {
-			@Parameters(paramLabel = "<proposal-id>", description = "The proposal, as 'federation proposal list' shows it.")
-			long proposalId;
-
-			@Option(names = {"-y", "--yes"}, description = "Do not ask for confirmation.")
-			boolean yes;
-
-			@Override
-			protected void run() throws Exception {
-				DirectorAdmin admin = context().directorAdmin();
-				terminal().confirm("Remove proposal " + proposalId + " from the record? A federation it established is not affected.", yes);
-
-				try {
-					await(admin.removeFederationProposal(proposalId));
-				} catch (NotFoundException e) {
-					throw noSuchProposal(proposalId);
-				}
-
-				if (output().isJson())
-					output().json(Map.of("proposalId", proposalId, "removed", true));
-				else
-					output().message("Removed proposal " + proposalId + ".");
-			}
-		}
-	}
-
-	@Command(name = "propose", description = {"Propose federation to another super node.",
-			"This node looks the other one up on the DHT, checks it, sends it the proposal, and waits for its answer. "
-					+ "Every proposal is recorded; see 'federation proposal list'."})
-	public static class ProposeCommand extends DirectorCommand {
-		// What the Director answers when it cannot find or validate the node proposed to.
-		private static final int UNPROCESSABLE = 422;
-
-		@Parameters(paramLabel = "<node-id>", description = "The node to federate with.")
-		Id nodeId;
-
-		@Override
-		protected void run() throws Exception {
-			DirectorAdmin admin = context().directorAdmin();
-			output().progress("Proposing federation to node " + nodeId + " (looking it up and waiting for its answer)...");
-
-			Optional<FederatedNode> result;
-			try {
-				result = await(admin.proposeFederation(nodeId));
-			} catch (ForbiddenException e) {
-				throw new CliException(ExitCode.NOT_AUTHORIZED, "Node " + nodeId + " is on the blacklist.",
-						"Remove it from the blacklist first with " + tool().command("blacklist remove " + nodeId) + ".");
-			} catch (ConflictException e) {
-				throw new CliException(ExitCode.CONFLICT, "This node is already federated with node " + nodeId + ".", null);
-			} catch (RateLimitException e) {
-				throw new CliException(ExitCode.UNAVAILABLE, "A proposal to node " + nodeId + " was made recently.",
-						e.getRetryAfter() > 0 ? "Try again in " + e.getRetryAfter() + " seconds." : "Try again later.");
-			} catch (DirectorException e) {
-				if (e.getStatus() != UNPROCESSABLE)
-					throw e;
-				throw CliException.failed("Node " + nodeId + " could not be found on the DHT, or is not a super node that federates.",
-						"Check the node id, and that the node is online.");
-			}
-
-			if (output().isJson()) {
-				Map<String, Object> json = new LinkedHashMap<>();
-				json.put("nodeId", nodeId);
-				json.put("federated", result.isPresent());
-				json.put("node", result.map(AdminViews::federatedNodeJson).orElse(null));
-				output().json(json);
-			} else if (result.isPresent()) {
-				FederatedNode node = result.get();
-				output().message("Federated with node " + nodeId + node.getName().map(name -> " (" + name + ")").orElse("") + ".");
-			} else {
-				output().message("The proposal did not federate the nodes.");
-				output().message("See how it ended with " + tool().command("federation proposal list --node " + nodeId) + ".");
-			}
-
-			if (result.isEmpty())
-				setExitCode(ExitCode.FAILED);
-		}
-	}
-
-	private static CliException notFederated(Id nodeId) {
-		return CliException.notFound("This node has not federated with node " + nodeId + ".",
-				"List the federated nodes with 'boson-director-cli federation node list'.");
-	}
-
-	private static CliException noSuchProposal(long proposalId) {
-		return CliException.notFound("There is no proposal " + proposalId + " on this node.",
-				"List the proposals with 'boson-director-cli federation proposal list'.");
 	}
 }
