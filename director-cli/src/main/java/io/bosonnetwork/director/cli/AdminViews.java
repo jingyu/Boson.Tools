@@ -33,6 +33,7 @@ import io.bosonnetwork.director.client.Feature;
 import io.bosonnetwork.director.client.FederatedNode;
 import io.bosonnetwork.director.client.FederatedNodeDescriptor;
 import io.bosonnetwork.director.client.FederatedService;
+import io.bosonnetwork.director.client.FederationProposal;
 import io.bosonnetwork.director.client.Plan;
 import io.bosonnetwork.director.client.Profile;
 import io.bosonnetwork.director.client.Subscription;
@@ -57,6 +58,8 @@ public final class AdminViews {
 	public static final List<String> FEDERATED_NODE_HEADERS = List.of("NODE ID", "STATE", "ADMISSION", "NOTE", "UPDATED");
 	/** The table headers of a federated service list. */
 	public static final List<String> FEDERATED_SERVICE_HEADERS = List.of("SERVICE TYPE", "NAME", "PEER ID", "ENDPOINT", "FEDERATION");
+	/** The table headers of a federation proposal list. */
+	public static final List<String> FEDERATION_PROPOSAL_HEADERS = List.of("ID", "NODE ID", "ROLE", "STATUS", "NOTE", "CREATED");
 
 	private static final int BRIEF = 40;
 
@@ -438,6 +441,69 @@ public final class AdminViews {
 		json.put("endpoint", service.getEndpoint());
 		json.put("federation", service.isFederation());
 		json.put("extra", service.getExtra().isEmpty() ? null : service.getExtra());
+		return json;
+	}
+
+	private static String role(FederationProposal p) {
+		return p.getRole().map(r -> r.name().toLowerCase(Locale.ROOT)).orElse("-");
+	}
+
+	private static String status(FederationProposal p) {
+		return p.getStatus().map(st -> st.name().toLowerCase(Locale.ROOT)).orElse("-");
+	}
+
+	/**
+	 * Returns the table row of a federation proposal.
+	 *
+	 * @param p the proposal
+	 * @return the row
+	 */
+	public static List<String> federationProposalRow(FederationProposal p) {
+		return List.of(Long.toString(p.getId()),
+				p.getNodeId().toBase58String(),
+				role(p),
+				status(p),
+				Formats.brief(p.getNote().orElse(null), BRIEF),
+				Formats.time(p.getCreatedAt()));
+	}
+
+	/**
+	 * Returns the details of a federation proposal.
+	 *
+	 * @param p the proposal
+	 * @return the details, keyed by label
+	 */
+	public static Map<String, String> federationProposal(FederationProposal p) {
+		Map<String, String> rows = new LinkedHashMap<>();
+		rows.put("Id", Long.toString(p.getId()));
+		rows.put("Node id", p.getNodeId().toBase58String());
+		rows.put("Role", p.getRole().map(r -> r == FederationProposal.Role.OFFER ?
+				"offer (this node proposed)" : "answer (the node proposed)").orElse("-"));
+		rows.put("Status", status(p));
+		rows.put("Note", Formats.text(p.getNote()));
+		rows.put("Created", Formats.time(p.getCreatedAt()));
+		rows.put("Updated", Formats.time(p.getUpdatedAt()));
+		if (p.getAnsweredAt() > 0)
+			rows.put("Answered", Formats.time(p.getAnsweredAt()));
+		return rows;
+	}
+
+	/**
+	 * Returns the JSON of a federation proposal.
+	 *
+	 * @param p the proposal
+	 * @return the JSON object
+	 */
+	public static Map<String, Object> federationProposalJson(FederationProposal p) {
+		Map<String, Object> json = new LinkedHashMap<>();
+		json.put("id", p.getId());
+		json.put("nodeId", p.getNodeId());
+		json.put("role", p.getRole().map(r -> r.name().toLowerCase(Locale.ROOT)).orElse(null));
+		json.put("status", p.getStatus().map(st -> st.name().toLowerCase(Locale.ROOT)).orElse(null));
+		json.put("note", p.getNote().orElse(null));
+		json.put("createdAt", p.getCreatedAt());
+		json.put("updatedAt", p.getUpdatedAt());
+		json.put("answeredAt", p.getAnsweredAt() > 0 ? p.getAnsweredAt() : null);
 		return json;
 	}
 }

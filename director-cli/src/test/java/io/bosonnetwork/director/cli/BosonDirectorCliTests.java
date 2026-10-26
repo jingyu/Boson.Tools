@@ -363,6 +363,31 @@ public class BosonDirectorCliTests {
 	}
 
 	@Test
+	void proposingSendsTheNodeAndNote(@TempDir Path dir) {
+		Id peer = Id.random();
+		director.reply("POST", "/api/v1/admin/federation/proposals", 200,
+				"{\"id\":7,\"nodeId\":\"" + peer + "\",\"role\":\"offer\",\"status\":\"pending\"," +
+						"\"note\":\"Partner\",\"createdAt\":1,\"updatedAt\":1}");
+
+		Result result = admin(dir).run("federation", "node", "propose", peer.toBase58String(), "--note", "Partner");
+		assertEquals(0, result.exitCode(), result::toString);
+		assertTrue(result.out().contains("proposal 7"), result::toString);
+
+		Map<String, Object> body = director.requests("POST", "/api/v1/admin/federation/proposals").get(0).json();
+		assertEquals(peer.toBase58String(), body.get("nodeId"));
+		assertEquals("Partner", body.get("note"));
+	}
+
+	@Test
+	void answeringAProposalThatWaitsForNoAnswerFails(@TempDir Path dir) {
+		director.reply("POST", "/api/v1/admin/federation/proposals/7/accept", 409, "not pending");
+
+		Result result = admin(dir).run("federation", "proposal", "accept", "7");
+		assertTrue(result.exitCode() != 0, result::toString);
+		assertTrue(result.err().contains("not one waiting for this node's answer"), result::toString);
+	}
+
+	@Test
 	void aNodeWithoutADecisionShowsTheModesAdmission(@TempDir Path dir) {
 		Id peer = Id.random();
 		director.reply("GET", "/api/v1/admin/federation/nodes/" + peer, 200,
