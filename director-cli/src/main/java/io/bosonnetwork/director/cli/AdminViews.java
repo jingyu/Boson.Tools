@@ -373,7 +373,8 @@ public final class AdminViews {
 		if (h.getDemand() == 0)
 			return "-";
 		return h.getDemand() + " (last " + Formats.time(h.getLastDemandAt()) +
-				h.getLastDemandReason().map(r -> ", " + r.name().toLowerCase(Locale.ROOT)).orElse("") + ")";
+				h.getLastDemandReason().map(r -> ", " + r.name().toLowerCase(Locale.ROOT)).orElse("") + ")" +
+				(h.isProposable() ? "; propose with: federation node propose " + h.getNodeId().toBase58String() : "");
 	}
 
 	private static String lastHour(FederatedNodeHealth h) {
@@ -425,6 +426,7 @@ public final class AdminViews {
 		json.put("demand", h.getDemand());
 		json.put("lastDemandAt", h.getLastDemandAt() > 0 ? h.getLastDemandAt() : null);
 		json.put("lastDemandReason", h.getLastDemandReason().map(Enum::name).orElse(null));
+		json.put("proposable", h.isProposable());
 		return json;
 	}
 
