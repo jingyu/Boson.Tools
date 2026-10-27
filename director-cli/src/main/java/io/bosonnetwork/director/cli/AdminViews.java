@@ -60,7 +60,7 @@ public final class AdminViews {
 	/** The table headers of a federated service list. */
 	public static final List<String> FEDERATED_SERVICE_HEADERS = List.of("SERVICE TYPE", "NAME", "PEER ID", "ENDPOINT", "FEDERATION");
 	/** The table headers of a list of nodes' health. */
-	public static final List<String> FEDERATED_NODE_HEALTH_HEADERS = List.of("NODE ID", "LAST SEEN", "LAST SUCCESS", "FAILURES IN A ROW", "LAST FAILURE", "LAST HOUR");
+	public static final List<String> FEDERATED_NODE_HEALTH_HEADERS = List.of("NODE ID", "LAST SEEN", "LAST SUCCESS", "FAILURES IN A ROW", "LAST FAILURE", "LAST HOUR", "WANTED");
 	/** The table headers of a federation proposal list. */
 	public static final List<String> FEDERATION_PROPOSAL_HEADERS = List.of("ID", "NODE ID", "ROLE", "STATUS", "NOTE", "CREATED");
 
@@ -351,11 +351,12 @@ public final class AdminViews {
 			rows.put("Updated", Formats.time(node.getUpdatedAt()));
 		}
 		node.getHealth().ifPresentOrElse(h -> {
-			rows.put("Last seen", Formats.time(h.getLastSeenAt()));
+			rows.put("Last seen", h.getLastSeenAt() > 0 ? Formats.time(h.getLastSeenAt()) : "-");
 			rows.put("Last success", h.getLastSuccessAt() > 0 ? Formats.time(h.getLastSuccessAt()) : "-");
 			rows.put("Last failure", lastFailure(h));
 			rows.put("Failures in a row", Integer.toString(h.getConsecutiveFailures()));
 			rows.put("Last hour", lastHour(h));
+			rows.put("Wanted", wanted(h));
 		}, () -> rows.put("Health", "nothing observed within the last day"));
 		return rows;
 	}
@@ -365,6 +366,14 @@ public final class AdminViews {
 			return "-";
 		String how = h.getLastFailure().map(o -> o.name().toLowerCase(Locale.ROOT)).orElse("failed");
 		return Formats.time(h.getLastFailureAt()) + " (" + how + h.getLastFailureDetail().map(d -> ": " + d).orElse("") + ")";
+	}
+
+	// How often local services wanted the node and couldn't reach it for want of a relationship.
+	private static String wanted(FederatedNodeHealth h) {
+		if (h.getDemand() == 0)
+			return "-";
+		return h.getDemand() + " (last " + Formats.time(h.getLastDemandAt()) +
+				h.getLastDemandReason().map(r -> ", " + r.name().toLowerCase(Locale.ROOT)).orElse("") + ")";
 	}
 
 	private static String lastHour(FederatedNodeHealth h) {
@@ -387,11 +396,12 @@ public final class AdminViews {
 	 */
 	public static List<String> federatedNodeHealthRow(FederatedNodeHealth h) {
 		return List.of(h.getNodeId().toBase58String(),
-				Formats.time(h.getLastSeenAt()),
+				h.getLastSeenAt() > 0 ? Formats.time(h.getLastSeenAt()) : "-",
 				h.getLastSuccessAt() > 0 ? Formats.time(h.getLastSuccessAt()) : "-",
 				Integer.toString(h.getConsecutiveFailures()),
 				h.getLastFailure().map(o -> o.name().toLowerCase(Locale.ROOT)).orElse("-"),
-				lastHour(h));
+				lastHour(h),
+				h.getDemand() > 0 ? Integer.toString(h.getDemand()) : "-");
 	}
 
 	/**
@@ -412,6 +422,9 @@ public final class AdminViews {
 		Map<String, Integer> lastHour = new LinkedHashMap<>();
 		h.getLastHour().forEach((outcome, count) -> lastHour.put(outcome.name(), count));
 		json.put("lastHour", lastHour);
+		json.put("demand", h.getDemand());
+		json.put("lastDemandAt", h.getLastDemandAt() > 0 ? h.getLastDemandAt() : null);
+		json.put("lastDemandReason", h.getLastDemandReason().map(Enum::name).orElse(null));
 		return json;
 	}
 

@@ -402,6 +402,20 @@ public class BosonDirectorCliTests {
 	}
 
 	@Test
+	void aNodeLocalServicesWantedShowsTheDemand(@TempDir Path dir) {
+		Id peer = Id.random();
+		director.reply("GET", "/api/v1/admin/federation/nodes/" + peer, 200,
+				"{\"nodeId\":\"" + peer + "\",\"admission\":\"NO_RELATIONSHIP\",\"health\":{\"nodeId\":\"" + peer +
+						"\",\"lastSeenAt\":0,\"consecutiveFailures\":0,\"lastHour\":{},\"demand\":4," +
+						"\"lastDemandAt\":1,\"lastDemandReason\":\"NO_RELATIONSHIP\"}}");
+
+		Result result = admin(dir).run("federation", "node", "show", peer.toBase58String());
+		assertEquals(0, result.exitCode(), result::toString);
+		assertTrue(result.out().contains("Wanted"), result::toString);
+		assertTrue(result.out().contains("no_relationship"), result::toString);
+	}
+
+	@Test
 	void aNodeWithoutADecisionShowsTheModesAdmission(@TempDir Path dir) {
 		Id peer = Id.random();
 		director.reply("GET", "/api/v1/admin/federation/nodes/" + peer, 200,
