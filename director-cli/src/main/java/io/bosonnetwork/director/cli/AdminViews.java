@@ -345,6 +345,12 @@ public final class AdminViews {
 		rows.put("Node id", node.getId().toBase58String());
 		rows.put("Relationship", node.getState().isPresent() ? state(node) : "none (the federation mode decides)");
 		rows.put("Admission", admission(node) + (node.isAdmitted() ? " (admitted)" : " (refused)"));
+		node.getReach().ifPresent(r -> rows.put("Sending to it", r.name().toLowerCase(Locale.ROOT) +
+				switch (r.decision()) {
+					case ALLOW -> " (sent)";
+					case PENDING -> " (held)";
+					case DENY -> " (refused)";
+				}));
 		rows.put("Note", Formats.text(node.getNote()));
 		if (node.getCreatedAt() > 0) {
 			rows.put("Created", Formats.time(node.getCreatedAt()));
@@ -442,6 +448,7 @@ public final class AdminViews {
 		json.put("state", node.getState().map(st -> st.name().toLowerCase(Locale.ROOT)).orElse(null));
 		json.put("admission", node.getAdmission().map(Enum::name).orElse(null));
 		json.put("admitted", node.isAdmitted());
+		json.put("reach", node.getReach().map(Enum::name).orElse(null));
 		json.put("note", node.getNote().orElse(null));
 		json.put("createdAt", node.getCreatedAt());
 		json.put("updatedAt", node.getUpdatedAt());

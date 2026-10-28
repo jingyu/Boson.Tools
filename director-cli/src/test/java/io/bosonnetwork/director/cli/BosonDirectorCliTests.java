@@ -419,12 +419,14 @@ public class BosonDirectorCliTests {
 	void aNodeWithoutADecisionShowsTheModesAdmission(@TempDir Path dir) {
 		Id peer = Id.random();
 		director.reply("GET", "/api/v1/admin/federation/nodes/" + peer, 200,
-				"{\"nodeId\":\"" + peer + "\",\"admission\":\"OPEN\"}");
+				"{\"nodeId\":\"" + peer + "\",\"admission\":\"OPEN\",\"reach\":\"PENDING\"}");
 
 		Result result = admin(dir).run("federation", "node", "show", peer.toBase58String());
 		assertEquals(0, result.exitCode(), result::toString);
 		assertTrue(result.out().contains("none (the federation mode decides)"), result::toString);
 		assertTrue(result.out().contains("open (admitted)"), result::toString);
+		// Admitted, but what is sent to it is held: the other node hasn't agreed yet.
+		assertTrue(result.out().contains("pending (held)"), result::toString);
 	}
 
 	@Test
