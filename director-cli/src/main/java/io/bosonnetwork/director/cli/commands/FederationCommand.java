@@ -41,11 +41,11 @@ import io.bosonnetwork.director.cli.AdminViews;
 import io.bosonnetwork.director.cli.Arguments;
 import io.bosonnetwork.director.client.DirectorAdmin;
 import io.bosonnetwork.director.client.FederatedNode;
-import io.bosonnetwork.director.client.FederatedNodeDescriptor;
 import io.bosonnetwork.director.client.FederatedNodeHealth;
 import io.bosonnetwork.director.client.FederationProposal;
 import io.bosonnetwork.director.client.exceptions.ConflictException;
 import io.bosonnetwork.director.client.exceptions.NotFoundException;
+import io.bosonnetwork.service.FederatedNodeDescriptor;
 import io.bosonnetwork.web.PaginatedResult;
 
 /**

@@ -31,14 +31,13 @@ import io.bosonnetwork.cli.common.Formats;
 import io.bosonnetwork.director.client.BlacklistedNode;
 import io.bosonnetwork.director.client.Feature;
 import io.bosonnetwork.director.client.FederatedNode;
-import io.bosonnetwork.director.client.FederatedNodeDescriptor;
 import io.bosonnetwork.director.client.FederatedNodeHealth;
-import io.bosonnetwork.director.client.FederatedService;
 import io.bosonnetwork.director.client.FederationProposal;
 import io.bosonnetwork.director.client.Plan;
 import io.bosonnetwork.director.client.Profile;
 import io.bosonnetwork.director.client.Subscription;
 import io.bosonnetwork.json.Json;
+import io.bosonnetwork.service.FederatedNodeDescriptor;
 
 /**
  * How {@code boson-director-cli} shows the admin API's objects: table rows, details and JSON. The JSON
@@ -472,8 +471,8 @@ public final class AdminViews {
 		rows.put("Federation mode", d.getMode().map(m -> m.wireName()).orElse("-"));
 		rows.put("Protocols", Formats.list(d.getProtocols()));
 		rows.put("Services", Integer.toString(d.getServices().size()));
-		rows.put("Signed", Formats.time(d.getIssuedAt()));
-		rows.put("Expires", Formats.time(d.getExpiresAt()));
+		rows.put("Signed", Formats.time(d.getIssuedAt().toEpochMilli()));
+		rows.put("Expires", Formats.time(d.getExpiresAt().toEpochMilli()));
 		return rows;
 	}
 
@@ -496,8 +495,8 @@ public final class AdminViews {
 		json.put("protocols", d.getProtocols());
 		json.put("capabilities", d.getCapabilities());
 		json.put("services", d.getServices().stream().map(AdminViews::federatedServiceJson).toList());
-		json.put("issuedAt", d.getIssuedAt());
-		json.put("expiresAt", d.getExpiresAt());
+		json.put("issuedAt", d.getIssuedAt().toEpochMilli());
+		json.put("expiresAt", d.getExpiresAt().toEpochMilli());
 		return json;
 	}
 
@@ -507,7 +506,7 @@ public final class AdminViews {
 	 * @param service the service
 	 * @return the row
 	 */
-	public static List<String> federatedServiceRow(FederatedService service) {
+	public static List<String> federatedServiceRow(FederatedNodeDescriptor.Service service) {
 		return List.of(service.getType(),
 				Formats.text(service.getName()),
 				service.getPeerId().toBase58String(),
@@ -521,7 +520,7 @@ public final class AdminViews {
 	 * @param service the service
 	 * @return the JSON object
 	 */
-	public static Map<String, Object> federatedServiceJson(FederatedService service) {
+	public static Map<String, Object> federatedServiceJson(FederatedNodeDescriptor.Service service) {
 		Map<String, Object> json = new LinkedHashMap<>();
 		json.put("type", service.getType());
 		json.put("name", service.getName().orElse(null));
